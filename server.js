@@ -180,8 +180,8 @@ DESIGN FILE TEXT:
 ${JSON.stringify(designTexts, null, 2)}
 `;
 
-      const completion = await openai.chat.completions.create({
-        model: process.env.OPENAI_MODEL || "gpt-4.1",
+      const completion = await groq.chat.completions.create({
+  model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
         messages: [
           {
             role: "system",
