@@ -6,7 +6,7 @@ import axios from "axios";
 import * as cheerio from "cheerio";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
-import OpenAI from "openai";
+import Groq from "groq-sdk";
 
 dotenv.config();
 
