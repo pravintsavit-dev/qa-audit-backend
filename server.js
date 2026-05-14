@@ -168,7 +168,7 @@ options: {
 
     return {
       captured: true,
-      viewport: "1440x1200",
+      viewport: "1920x1080",
       imageUrl: data.publicUrl,
       notes: "Screenshot captured and uploaded successfully."
     };
