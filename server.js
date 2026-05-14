@@ -7,6 +7,12 @@ import * as cheerio from "cheerio";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import Groq from "groq-sdk";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
 dotenv.config();
 
@@ -142,8 +148,18 @@ async function capturePageScreenshot(url) {
       screenshotUrl,
       {
         url,
+        gotoOptions: {
+          waitUntil: "networkidle2",
+          timeout: 45000
+        },
+        viewport: {
+          width: 1440,
+          height: 1200,
+          deviceScaleFactor: 1,
+          isMobile: false
+        },
         options: {
-          fullPage: true,
+          fullPage: false,
           type: "png"
         }
       },
@@ -152,11 +168,33 @@ async function capturePageScreenshot(url) {
       }
     );
 
+    const imageBuffer = Buffer.from(response.data);
+
+    const fileName =
+      `qa-${Date.now()}.png`;
+
+    const { error } = await supabase
+      .storage
+      .from("qa-screenshots")
+      .upload(fileName, imageBuffer, {
+        contentType: "image/png",
+        upsert: true
+      });
+
+    if (error) {
+      throw error;
+    }
+
+    const { data } = supabase
+      .storage
+      .from("qa-screenshots")
+      .getPublicUrl(fileName);
+
     return {
       captured: true,
       viewport: "1440x1200",
-      imageBase64: Buffer.from(response.data).toString("base64"),
-      notes: "Full-page screenshot captured successfully."
+      imageUrl: data.publicUrl,
+      notes: "Screenshot uploaded successfully."
     };
 
   } catch (error) {
@@ -164,7 +202,7 @@ async function capturePageScreenshot(url) {
     return {
       captured: false,
       viewport: "1440x1200",
-      imageBase64: "",
+      imageUrl: "",
       notes: `Screenshot capture failed: ${error.message}`
     };
   }
