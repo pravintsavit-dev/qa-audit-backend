@@ -7,7 +7,6 @@ import * as cheerio from "cheerio";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import Groq from "groq-sdk";
-import puppeteer from "puppeteer";
 
 dotenv.config();
 
@@ -132,51 +131,36 @@ async function extractFileText(file) {
   }
 }
 
+```js
 async function capturePageScreenshot(url) {
-
-  let browser;
 
   try {
 
-    browser = await puppeteer.launch({
-  headless: true,
-  args: [
-    "--no-sandbox",
-    "--disable-setuid-sandbox"
-  ]
-});
+    const screenshotUrl =
+      "https://production-sfo.browserless.io/screenshot?token=YOUR_BROWSERLESS_TOKEN";
 
-    const page = await browser.newPage();
-
-    await page.setViewport({
-      width: 1440,
-      height: 1200
-    });
-
-    await page.goto(url, {
-      waitUntil: "domcontentloaded",
-      timeout: 45000
-    });
-
-    const screenshotBuffer = await page.screenshot({
-      fullPage: true,
-      type: "png"
-    });
-
-    await browser.close();
+    const response = await axios.post(
+      screenshotUrl,
+      {
+        url,
+        options: {
+          fullPage: true,
+          type: "png"
+        }
+      },
+      {
+        responseType: "arraybuffer"
+      }
+    );
 
     return {
       captured: true,
       viewport: "1440x1200",
-      imageBase64: screenshotBuffer.toString("base64"),
+      imageBase64: Buffer.from(response.data).toString("base64"),
       notes: "Full-page screenshot captured successfully."
     };
 
   } catch (error) {
-
-    if (browser) {
-      await browser.close();
-    }
 
     return {
       captured: false,
