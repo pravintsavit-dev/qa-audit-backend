@@ -7,7 +7,7 @@ import * as cheerio from "cheerio";
 import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import Groq from "groq-sdk";
-
+import { chromium } from "playwright";
 dotenv.config();
 
 const app = express();
@@ -88,6 +88,51 @@ async function extractFileText(file) {
     return {
       fileName: name,
       text: `Could not extract file text: ${error.message}`
+    };
+  }
+}
+
+async function capturePageScreenshot(url) {
+  let browser;
+
+  try {
+    browser = await chromium.launch({
+      headless: true
+    });
+
+    const page = await browser.newPage({
+      viewport: {
+        width: 1440,
+        height: 1200
+      }
+    });
+
+    await page.goto(url, {
+      waitUntil: "networkidle",
+      timeout: 45000
+    });
+
+    const screenshotBuffer = await page.screenshot({
+      fullPage: true,
+      type: "png"
+    });
+
+    await browser.close();
+
+    return {
+      captured: true,
+      viewport: "1440x1200",
+      imageBase64: screenshotBuffer.toString("base64"),
+      notes: "Full-page screenshot captured for visual QA evidence."
+    };
+  } catch (error) {
+    if (browser) await browser.close();
+
+    return {
+      captured: false,
+      viewport: "1440x1200",
+      imageBase64: "",
+      notes: `Screenshot capture failed: ${error.message}`
     };
   }
 }
