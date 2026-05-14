@@ -108,7 +108,7 @@ async function capturePageScreenshot(url) {
     });
 
     await page.goto(url, {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
       timeout: 45000
     });
 
