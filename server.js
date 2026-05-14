@@ -131,13 +131,12 @@ async function extractFileText(file) {
   }
 }
 
-```js
 async function capturePageScreenshot(url) {
 
   try {
 
     const screenshotUrl =
-      "https://production-sfo.browserless.io/screenshot?token=YOUR_BROWSERLESS_TOKEN";
+      "https://production-sfo.browserless.io/screenshot?token=2UW004bcn2KJPkV251e792060fd523d147bc3b98c944dde2a";
 
     const response = await axios.post(
       screenshotUrl,
