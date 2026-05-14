@@ -157,6 +157,7 @@ app.post(
       const designFiles = req.files?.designFiles || [];
 
       const livePages = await Promise.all(urls.map(extractLivePageText));
+      const screenshotResults = await Promise.all(urls.map(url => capturePageScreenshot(url)));
 
       const sourceTexts = await Promise.all(contentFiles.map(extractFileText));
       const jsonTexts = await Promise.all(jsonFiles.map(extractFileText));
@@ -214,6 +215,8 @@ Return ONLY valid JSON in this exact structure:
 
 LIVE PAGES:
 ${JSON.stringify(livePages, null, 2)}
+SCREENSHOT QA:
+${JSON.stringify(screenshotResults.map((shot, index) => ({url: urls[index],captured: shot.captured,viewport: shot.viewport,notes: shot.notes})),null,2)}
 
 SOURCE DOC/PDF FILE TEXT:
 ${JSON.stringify(sourceTexts, null, 2)}
@@ -243,6 +246,8 @@ ${JSON.stringify(designTexts, null, 2)}
       const output = completion.choices[0].message.content;
       const clean = output.replace(/```json|```/g, "").trim();
       const json = JSON.parse(clean);
+      if (Array.isArray(json.pages)) {json.pages = json.pages.map((page, index) => ({...page,screenshotQA: screenshotResults[index] || {captured: false,viewport: "1440x1200",imageBase64: "",notes: "Screenshot not available."}}));
+}
 
       res.json(json);
     } catch (error) {
