@@ -128,15 +128,17 @@ async function capturePageScreenshot(url) {
           timeout: 45000
         },
         viewport: {
-          width: 1440,
-          height: 1200,
-          deviceScaleFactor: 1,
-          isMobile: false
-        },
-        options: {
-          fullPage: false,
-          type: "png"
-        }
+  width: 1920,
+  height: 1080,
+  deviceScaleFactor: 1,
+  isMobile: false,
+  hasTouch: false,
+  isLandscape: true
+},
+options: {
+  fullPage: true,
+  type: "png"
+}
       },
       {
         responseType: "arraybuffer",
