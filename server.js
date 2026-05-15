@@ -45,7 +45,7 @@ app.get("/api/audit-history", async (req, res) => {
 
     if (error) throw error;
 
-    res.json(data);
+    res.json(data || []);
   } catch (error) {
     res.status(500).json({
       error: error.message
@@ -151,6 +151,15 @@ function makeSafeFileName(url) {
 
 async function capturePageScreenshot(url) {
   try {
+    if (!process.env.BROWSERLESS_TOKEN) {
+      return {
+        captured: false,
+        viewport: "1920x1080",
+        imageUrl: "",
+        notes: "Browserless token not configured."
+      };
+    }
+
     const screenshotUrl =
       `https://production-sfo.browserless.io/screenshot?token=${process.env.BROWSERLESS_TOKEN}`;
 
@@ -158,12 +167,10 @@ async function capturePageScreenshot(url) {
       screenshotUrl,
       {
         url,
-
         gotoOptions: {
           waitUntil: "networkidle2",
           timeout: 60000
         },
-
         viewport: {
           width: 1920,
           height: 1080,
@@ -172,10 +179,8 @@ async function capturePageScreenshot(url) {
           hasTouch: false,
           isLandscape: true
         },
-
         bestAttempt: true,
         waitForTimeout: 5000,
-
         options: {
           fullPage: true,
           type: "png"
@@ -218,6 +223,50 @@ async function capturePageScreenshot(url) {
       imageUrl: "",
       notes: `Screenshot capture failed: ${error.message}`
     };
+  }
+}
+
+function extractJsonFromAiOutput(output) {
+  const cleaned = String(output || "")
+    .replace(/```json/gi, "")
+    .replace(/```/g, "")
+    .trim();
+
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const firstBrace = cleaned.indexOf("{");
+    const lastBrace = cleaned.lastIndexOf("}");
+
+    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+      const jsonOnly = cleaned.slice(firstBrace, lastBrace + 1);
+      return JSON.parse(jsonOnly);
+    }
+
+    throw new Error("AI did not return valid JSON.");
+  }
+}
+
+async function saveAuditHistory(urls, reportJson) {
+  try {
+    const firstUrl = urls[0] || "Unknown URL";
+
+    const auditName = firstUrl
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+
+    await supabase
+      .from("audit_history")
+      .insert([
+        {
+          audit_name: auditName,
+          url: firstUrl,
+          result: reportJson.overallResult || "UNKNOWN",
+          report_json: reportJson
+        }
+      ]);
+  } catch (error) {
+    console.error("Audit history save failed:", error.message);
   }
 }
 
@@ -282,19 +331,18 @@ ${JSON.stringify(designTexts, null, 2)}
         messages: [
           {
             role: "system",
-            content: "You are a strict senior website QA content auditor. Return only valid JSON."
+            content: "Return only valid JSON. No markdown. No headings. No explanation outside JSON."
           },
           {
             role: "user",
             content: prompt
           }
         ],
-        temperature: 0.1
+        temperature: 0
       });
 
       const output = completion.choices[0].message.content;
-      const clean = output.replace(/```json|```/g, "").trim();
-      const json = JSON.parse(clean);
+      const json = extractJsonFromAiOutput(output);
 
       if (Array.isArray(json.pages)) {
         json.pages = json.pages.map((page, index) => ({
@@ -308,22 +356,7 @@ ${JSON.stringify(designTexts, null, 2)}
         }));
       }
 
-      const firstUrl = urls[0] || "Unknown URL";
-
-      const auditName = firstUrl
-        .replace(/^https?:\/\//, "")
-        .replace(/\/$/, "");
-
-      await supabase
-        .from("audit_history")
-        .insert([
-          {
-            audit_name: auditName,
-            url: firstUrl,
-            result: json.overallResult || "UNKNOWN",
-            report_json: json
-          }
-        ]);
+      await saveAuditHistory(urls, json);
 
       res.json(json);
     } catch (error) {
