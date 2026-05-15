@@ -144,10 +144,6 @@ async function capturePageScreenshot(url) {
           timeout: 60000
         },
 
-        waitForTimeout: 5000,
-
-        bestAttempt: true,
-
         viewport: {
           width: 1920,
           height: 1080,
@@ -157,6 +153,89 @@ async function capturePageScreenshot(url) {
           isLandscape: true
         },
 
+        bestAttempt: true,
+
+        waitForTimeout: 3000,
+
+        evaluate: async () => {
+          function wait(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+          }
+
+          async function autoScrollPage() {
+            const totalHeight = Math.max(
+              document.body.scrollHeight,
+              document.documentElement.scrollHeight
+            );
+
+            const step = Math.max(window.innerHeight * 0.75, 600);
+            let currentPosition = 0;
+
+            while (currentPosition < totalHeight) {
+              window.scrollTo(0, currentPosition);
+              await wait(700);
+              currentPosition += step;
+            }
+
+            window.scrollTo(0, totalHeight);
+            await wait(1200);
+            window.scrollTo(0, 0);
+            await wait(1500);
+          }
+
+          function forceLazyImages() {
+            document.querySelectorAll("img").forEach(img => {
+              const lazySrc =
+                img.getAttribute("data-src") ||
+                img.getAttribute("data-lazy-src") ||
+                img.getAttribute("data-original") ||
+                img.getAttribute("data-srcset");
+
+              if (lazySrc && !img.getAttribute("src")) {
+                img.setAttribute("src", lazySrc);
+              }
+
+              if (img.dataset && img.dataset.src) {
+                img.src = img.dataset.src;
+              }
+
+              img.loading = "eager";
+              img.decoding = "sync";
+            });
+
+            document.querySelectorAll("source").forEach(source => {
+              const lazySrcset =
+                source.getAttribute("data-srcset") ||
+                source.getAttribute("data-lazy-srcset");
+
+              if (lazySrcset && !source.getAttribute("srcset")) {
+                source.setAttribute("srcset", lazySrcset);
+              }
+            });
+          }
+
+          forceLazyImages();
+          await autoScrollPage();
+          forceLazyImages();
+
+          await Promise.all(
+            Array.from(document.images).map(img => {
+              if (img.complete) return Promise.resolve();
+
+              return new Promise(resolve => {
+                img.onload = resolve;
+                img.onerror = resolve;
+                setTimeout(resolve, 5000);
+              });
+            })
+          );
+
+          await document.fonts.ready;
+          await wait(3000);
+
+          window.scrollTo(0, 0);
+        },
+
         options: {
           fullPage: true,
           type: "png"
@@ -164,7 +243,7 @@ async function capturePageScreenshot(url) {
       },
       {
         responseType: "arraybuffer",
-        timeout: 70000
+        timeout: 90000
       }
     );
 
@@ -192,7 +271,7 @@ async function capturePageScreenshot(url) {
       captured: true,
       viewport: "1920x1080",
       imageUrl: data.publicUrl,
-      notes: "Full-page 1920px desktop screenshot captured after 5-second wait and uploaded successfully."
+      notes: "Full-page 1920px desktop screenshot captured after lazy-load scroll and uploaded successfully."
     };
   } catch (error) {
     return {
