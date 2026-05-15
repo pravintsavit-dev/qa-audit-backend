@@ -8,6 +8,7 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import Groq from "groq-sdk";
 import { createClient } from "@supabase/supabase-js";
+import MASTER_QA_PROMPT from "./masterPrompt.js";
 
 dotenv.config();
 
@@ -37,31 +38,23 @@ app.get("/", (req, res) => {
 
 app.get("/api/audit-history", async (req, res) => {
   try {
-
     const { data, error } = await supabase
       .from("audit_history")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     res.json(data);
-
   } catch (error) {
-
     res.status(500).json({
       error: error.message
     });
-
   }
 });
 
 async function extractLivePageText(url) {
-
   try {
-
     const response = await axios.get(url, {
       timeout: 20000,
       headers: {
@@ -74,19 +67,9 @@ async function extractLivePageText(url) {
     $("script, style, noscript, svg").remove();
 
     const title = $("title").text().trim();
-
-    const h1 = $("h1")
-      .map((_, el) => $(el).text().trim())
-      .get();
-
-    const h2 = $("h2")
-      .map((_, el) => $(el).text().trim())
-      .get();
-
-    const bodyText = $("body")
-      .text()
-      .replace(/\s+/g, " ")
-      .trim();
+    const h1 = $("h1").map((_, el) => $(el).text().trim()).get();
+    const h2 = $("h2").map((_, el) => $(el).text().trim()).get();
+    const bodyText = $("body").text().replace(/\s+/g, " ").trim();
 
     return {
       url,
@@ -95,27 +78,21 @@ async function extractLivePageText(url) {
       h2,
       bodyText
     };
-
   } catch (error) {
-
     return {
       url,
       error: `Could not access live page: ${error.message}`,
       bodyText: ""
     };
-
   }
 }
 
 async function extractFileText(file) {
-
   const name = file.originalname;
   const lower = name.toLowerCase();
 
   try {
-
     if (lower.endsWith(".docx")) {
-
       const result = await mammoth.extractRawText({
         buffer: file.buffer
       });
@@ -127,7 +104,6 @@ async function extractFileText(file) {
     }
 
     if (lower.endsWith(".pdf")) {
-
       const result = await pdfParse(file.buffer);
 
       return {
@@ -137,7 +113,6 @@ async function extractFileText(file) {
     }
 
     if (lower.endsWith(".json")) {
-
       return {
         fileName: name,
         text: file.buffer.toString("utf8")
@@ -148,21 +123,16 @@ async function extractFileText(file) {
       fileName: name,
       text: file.buffer.toString("utf8")
     };
-
   } catch (error) {
-
     return {
       fileName: name,
       text: `Could not extract file text: ${error.message}`
     };
-
   }
 }
 
 function makeSafeFileName(url) {
-
   try {
-
     const parsed = new URL(url);
 
     const domain = parsed.hostname
@@ -174,18 +144,13 @@ function makeSafeFileName(url) {
       .replace(/-+/g, "-");
 
     return `${domain}${path}-${Date.now()}.png`;
-
   } catch {
-
     return `qa-screenshot-${Date.now()}.png`;
-
   }
 }
 
 async function capturePageScreenshot(url) {
-
   try {
-
     const screenshotUrl =
       `https://production-sfo.browserless.io/screenshot?token=${process.env.BROWSERLESS_TOKEN}`;
 
@@ -209,7 +174,6 @@ async function capturePageScreenshot(url) {
         },
 
         bestAttempt: true,
-
         waitForTimeout: 5000,
 
         options: {
@@ -224,7 +188,6 @@ async function capturePageScreenshot(url) {
     );
 
     const imageBuffer = Buffer.from(response.data);
-
     const fileName = makeSafeFileName(url);
 
     const { error } = await supabase
@@ -235,9 +198,7 @@ async function capturePageScreenshot(url) {
         upsert: true
       });
 
-    if (error) {
-      throw error;
-    }
+    if (error) throw error;
 
     const { data } = supabase
       .storage
@@ -250,16 +211,13 @@ async function capturePageScreenshot(url) {
       imageUrl: data.publicUrl,
       notes: "Full-page screenshot uploaded successfully."
     };
-
   } catch (error) {
-
     return {
       captured: false,
       viewport: "1920x1080",
       imageUrl: "",
       notes: `Screenshot capture failed: ${error.message}`
     };
-
   }
 }
 
@@ -271,78 +229,43 @@ app.post(
     { name: "designFiles", maxCount: 30 }
   ]),
   async (req, res) => {
-
     try {
-
       const urls = JSON.parse(req.body.urls || "[]");
 
       if (!urls.length) {
-
         return res.status(400).json({
           error: "At least one live URL is required."
         });
-
       }
 
       const contentFiles = req.files?.contentFiles || [];
       const jsonFiles = req.files?.jsonFiles || [];
       const designFiles = req.files?.designFiles || [];
 
-      const livePages =
-        await Promise.all(
-          urls.map(extractLivePageText)
-        );
-
-      const screenshotResults =
-        await Promise.all(
-          urls.map(capturePageScreenshot)
-        );
-
-      const sourceTexts =
-        await Promise.all(
-          contentFiles.map(extractFileText)
-        );
-
-      const jsonTexts =
-        await Promise.all(
-          jsonFiles.map(extractFileText)
-        );
-
-      const designTexts =
-        await Promise.all(
-          designFiles.map(extractFileText)
-        );
+      const livePages = await Promise.all(urls.map(extractLivePageText));
+      const screenshotResults = await Promise.all(urls.map(capturePageScreenshot));
+      const sourceTexts = await Promise.all(contentFiles.map(extractFileText));
+      const jsonTexts = await Promise.all(jsonFiles.map(extractFileText));
+      const designTexts = await Promise.all(designFiles.map(extractFileText));
 
       const prompt = `
-Act as a Senior Website QA Content Auditor.
-
-Perform STRICT website QA.
-
-Compare:
-1. source DOCX/PDF files,
-2. optional Elementor JSON files,
-3. optional design PDF/XD files,
-4. live website URLs.
-
-Rules:
-- Live URLs are compulsory.
-- DOC/PDF is primary source of truth if uploaded.
-- JSON supports structure only.
-- Ignore styling differences.
-- Focus on missing content, duplicated content, extra content, modified wording, placement/order issues, wrong city, wrong phone, wrong FAQ, and wrong CTA.
-- Return ONLY valid JSON.
-
-Structure:
-{
-  "overallResult": "PASS or FAIL",
-  "pages": []
-}
+${MASTER_QA_PROMPT}
 
 LIVE PAGES:
 ${JSON.stringify(livePages, null, 2)}
 
 SCREENSHOT QA:
-${JSON.stringify(screenshotResults, null, 2)}
+${JSON.stringify(
+  screenshotResults.map((shot, index) => ({
+    url: urls[index],
+    captured: shot.captured,
+    viewport: shot.viewport,
+    imageUrl: shot.imageUrl,
+    notes: shot.notes
+  })),
+  null,
+  2
+)}
 
 SOURCE DOC/PDF FILE TEXT:
 ${JSON.stringify(sourceTexts, null, 2)}
@@ -354,59 +277,42 @@ DESIGN FILE TEXT:
 ${JSON.stringify(designTexts, null, 2)}
 `;
 
-      const completion =
-        await groq.chat.completions.create({
-          model:
-            process.env.GROQ_MODEL ||
-            "llama-3.3-70b-versatile",
+      const completion = await groq.chat.completions.create({
+        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+        messages: [
+          {
+            role: "system",
+            content: "You are a strict senior website QA content auditor. Return only valid JSON."
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.1
+      });
 
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are a strict senior website QA content auditor. Return only valid JSON."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-
-          temperature: 0.1
-        });
-
-      const output =
-        completion.choices[0].message.content;
-
-      const clean =
-        output
-          .replace(/```json|```/g, "")
-          .trim();
-
+      const output = completion.choices[0].message.content;
+      const clean = output.replace(/```json|```/g, "").trim();
       const json = JSON.parse(clean);
 
       if (Array.isArray(json.pages)) {
-
-        json.pages =
-          json.pages.map((page, index) => ({
-            ...page,
-            screenshotQA:
-              screenshotResults[index] || {
-                captured: false,
-                viewport: "1920x1080",
-                imageUrl: "",
-                notes: "Screenshot not available."
-              }
-          }));
+        json.pages = json.pages.map((page, index) => ({
+          ...page,
+          screenshotQA: screenshotResults[index] || {
+            captured: false,
+            viewport: "1920x1080",
+            imageUrl: "",
+            notes: "Screenshot not available."
+          }
+        }));
       }
 
-      const firstUrl =
-        urls[0] || "Unknown URL";
+      const firstUrl = urls[0] || "Unknown URL";
 
-      const auditName =
-        firstUrl
-          .replace(/^https?:\/\//, "")
-          .replace(/\/$/, "");
+      const auditName = firstUrl
+        .replace(/^https?:\/\//, "")
+        .replace(/\/$/, "");
 
       await supabase
         .from("audit_history")
@@ -420,27 +326,19 @@ ${JSON.stringify(designTexts, null, 2)}
         ]);
 
       res.json(json);
-
     } catch (error) {
-
       console.error(error);
 
       res.status(500).json({
         overallResult: "FAIL",
         error: error.message
       });
-
     }
   }
 );
 
-const PORT =
-  process.env.PORT || 10000;
+const PORT = process.env.PORT || 10000;
 
 app.listen(PORT, () => {
-
-  console.log(
-    `QA Audit Backend running on port ${PORT}`
-  );
-
+  console.log(`QA Audit Backend running on port ${PORT}`);
 });
