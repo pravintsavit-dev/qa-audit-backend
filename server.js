@@ -76,12 +76,20 @@ async function extractFileText(file) {
   try {
     if (lower.endsWith(".docx")) {
       const result = await mammoth.extractRawText({ buffer: file.buffer });
-      return { fileName: name, text: result.value || "" };
+
+      return {
+        fileName: name,
+        text: result.value || ""
+      };
     }
 
     if (lower.endsWith(".pdf")) {
       const result = await pdfParse(file.buffer);
-      return { fileName: name, text: result.text || "" };
+
+      return {
+        fileName: name,
+        text: result.text || ""
+      };
     }
 
     if (lower.endsWith(".json")) {
@@ -106,8 +114,15 @@ async function extractFileText(file) {
 function makeSafeFileName(url) {
   try {
     const parsed = new URL(url);
-    const domain = parsed.hostname.replace("www.", "").replace(/[^a-z0-9]/gi, "-");
-    const path = parsed.pathname.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-");
+
+    const domain = parsed.hostname
+      .replace("www.", "")
+      .replace(/[^a-z0-9]/gi, "-");
+
+    const path = parsed.pathname
+      .replace(/[^a-z0-9]/gi, "-")
+      .replace(/-+/g, "-");
+
     return `${domain}${path}-${Date.now()}.png`;
   } catch {
     return `qa-screenshot-${Date.now()}.png`;
@@ -123,26 +138,33 @@ async function capturePageScreenshot(url) {
       screenshotUrl,
       {
         url,
+
         gotoOptions: {
           waitUntil: "networkidle2",
-          timeout: 45000
+          timeout: 60000
         },
+
+        waitForTimeout: 5000,
+
+        bestAttempt: true,
+
         viewport: {
-  width: 1920,
-  height: 1080,
-  deviceScaleFactor: 1,
-  isMobile: false,
-  hasTouch: false,
-  isLandscape: true
-},
-options: {
-  fullPage: true,
-  type: "png"
-}
+          width: 1920,
+          height: 1080,
+          deviceScaleFactor: 1,
+          isMobile: false,
+          hasTouch: false,
+          isLandscape: true
+        },
+
+        options: {
+          fullPage: true,
+          type: "png"
+        }
       },
       {
         responseType: "arraybuffer",
-        timeout: 60000
+        timeout: 70000
       }
     );
 
@@ -170,12 +192,12 @@ options: {
       captured: true,
       viewport: "1920x1080",
       imageUrl: data.publicUrl,
-      notes: "Screenshot captured and uploaded successfully."
+      notes: "Full-page 1920px desktop screenshot captured after 5-second wait and uploaded successfully."
     };
   } catch (error) {
     return {
       captured: false,
-      viewport: "1440x1200",
+      viewport: "1920x1080",
       imageUrl: "",
       notes: `Screenshot capture failed: ${error.message}`
     };
@@ -300,7 +322,7 @@ ${JSON.stringify(designTexts, null, 2)}
           ...page,
           screenshotQA: screenshotResults[index] || {
             captured: false,
-            viewport: "1440x1200",
+            viewport: "1920x1080",
             imageUrl: "",
             notes: "Screenshot not available."
           }
