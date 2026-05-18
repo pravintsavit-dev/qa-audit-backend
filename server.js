@@ -56,12 +56,22 @@ app.get("/api/audit-history", async (req, res) => {
 function cleanText(value) {
   return String(value || "")
     .replace(/\u00a0/g, " ")
+    .replace(/\r/g, "\n")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s+/g, "\n")
+    .replace(/\s+\n/g, "\n")
+    .trim();
+}
+
+function cleanOneLine(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }
 
 function limitText(value, max = 4000) {
-  const text = cleanText(value);
+  const text = cleanOneLine(value);
 
   if (text.length <= max) return text;
 
@@ -73,7 +83,7 @@ function uniqueStrings(items) {
   const output = [];
 
   items.forEach(item => {
-    const text = cleanText(item);
+    const text = cleanOneLine(item);
 
     if (!text) return;
 
@@ -88,11 +98,31 @@ function uniqueStrings(items) {
   return output;
 }
 
+function normalizeForCompare(value) {
+  return cleanOneLine(value)
+    .toLowerCase()
+    .replace(/[’‘]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function softContains(haystack, needle) {
+  const h = normalizeForCompare(haystack);
+  const n = normalizeForCompare(needle);
+
+  if (!n || n.length < 4) return true;
+
+  return h.includes(n);
+}
+
 function extractTextList($, selector, maxItems = 40, maxLength = 240) {
   const values = [];
 
   $(selector).each((_, el) => {
-    const text = cleanText($(el).text());
+    const text = cleanOneLine($(el).text());
 
     if (text && text.length > 1) {
       values.push(limitText(text, maxLength));
@@ -109,9 +139,9 @@ function extractCtas($) {
     const node = $(el);
 
     const text =
-      cleanText(node.text()) ||
-      cleanText(node.attr("value")) ||
-      cleanText(node.attr("aria-label"));
+      cleanOneLine(node.text()) ||
+      cleanOneLine(node.attr("value")) ||
+      cleanOneLine(node.attr("aria-label"));
 
     const href = node.attr("href") || "";
 
@@ -157,12 +187,12 @@ function extractCtas($) {
     .slice(0, 25);
 }
 
-function extractFaqs($) {
+function extractFaqsFromHtml($) {
   const faqs = [];
 
   $("details").each((_, el) => {
-    const question = cleanText($(el).find("summary").first().text());
-    const answer = cleanText($(el).text()).replace(question, "").trim();
+    const question = cleanOneLine($(el).find("summary").first().text());
+    const answer = cleanOneLine($(el).text()).replace(question, "").trim();
 
     if (question || answer) {
       faqs.push({
@@ -177,21 +207,21 @@ function extractFaqs($) {
     const item = $(el);
 
     const question =
-      cleanText(item.find(".elementor-tab-title").first().text()) ||
-      cleanText(item.find(".accordion-title").first().text()) ||
-      cleanText(item.find(".faq-question").first().text()) ||
-      cleanText(item.find("h2,h3,h4,button").first().text());
+      cleanOneLine(item.find(".elementor-tab-title").first().text()) ||
+      cleanOneLine(item.find(".accordion-title").first().text()) ||
+      cleanOneLine(item.find(".faq-question").first().text()) ||
+      cleanOneLine(item.find("h2,h3,h4,button").first().text());
 
     let answer =
-      cleanText(item.find(".elementor-tab-content").first().text()) ||
-      cleanText(item.find(".accordion-content").first().text()) ||
-      cleanText(item.find(".faq-answer").first().text());
+      cleanOneLine(item.find(".elementor-tab-content").first().text()) ||
+      cleanOneLine(item.find(".accordion-content").first().text()) ||
+      cleanOneLine(item.find(".faq-answer").first().text());
 
     if (!answer) {
-      const allText = cleanText(item.text());
+      const allText = cleanOneLine(item.text());
 
       if (question && allText.includes(question)) {
-        answer = cleanText(allText.replace(question, ""));
+        answer = cleanOneLine(allText.replace(question, ""));
       } else {
         answer = allText;
       }
@@ -222,17 +252,17 @@ function extractFaqs($) {
     .slice(0, 20);
 }
 
-function extractReviews($) {
+function extractReviewsFromHtml($) {
   const reviews = [];
 
   $(".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial'], [class*='rating']").each((_, el) => {
     const item = $(el);
-    const text = cleanText(item.text());
+    const text = cleanOneLine(item.text());
 
     if (text.length < 20) return;
 
     const author =
-      cleanText(item.find(".author,.name,.reviewer,[class*='author'],[class*='name']").first().text()) ||
+      cleanOneLine(item.find(".author,.name,.reviewer,[class*='author'],[class*='name']").first().text()) ||
       "";
 
     reviews.push({
@@ -263,14 +293,14 @@ function extractBenefitCards($) {
     const item = $(el);
 
     const title =
-      cleanText(item.find(".elementor-icon-box-title").first().text()) ||
-      cleanText(item.find("h2,h3,h4,strong").first().text());
+      cleanOneLine(item.find(".elementor-icon-box-title").first().text()) ||
+      cleanOneLine(item.find("h2,h3,h4,strong").first().text());
 
     const description =
-      cleanText(item.find(".elementor-icon-box-description").first().text()) ||
-      cleanText(item.find("p").first().text());
+      cleanOneLine(item.find(".elementor-icon-box-description").first().text()) ||
+      cleanOneLine(item.find("p").first().text());
 
-    const fullText = cleanText(item.text());
+    const fullText = cleanOneLine(item.text());
 
     if (fullText.length < 5 || fullText.length > 700) return;
 
@@ -296,11 +326,11 @@ function extractBenefitCards($) {
     .slice(0, 18);
 }
 
-function extractProcessSteps($) {
+function extractProcessStepsFromHtml($) {
   const steps = [];
 
   $("ol li").each((index, el) => {
-    const text = cleanText($(el).text());
+    const text = cleanOneLine($(el).text());
 
     if (text.length > 5) {
       steps.push({
@@ -312,7 +342,7 @@ function extractProcessSteps($) {
   });
 
   $(".elementor-accordion-item, .accordion-item, .step, [class*='step'], [class*='process']").each((index, el) => {
-    const text = cleanText($(el).text());
+    const text = cleanOneLine($(el).text());
 
     if (text.length > 10 && text.length < 1400) {
       steps.push({
@@ -344,7 +374,7 @@ function extractSections($) {
   $("h1, h2, h3").each((_, el) => {
     const headingNode = $(el);
 
-    const heading = cleanText(headingNode.text());
+    const heading = cleanOneLine(headingNode.text());
     const level = String(el.tagName || "").toUpperCase();
 
     if (!heading || heading.length < 2) return;
@@ -354,12 +384,12 @@ function extractSections($) {
     const closestSection = headingNode.closest("section");
 
     if (closestSection.length) {
-      sectionText = cleanText(closestSection.text());
+      sectionText = cleanOneLine(closestSection.text());
     }
 
     if (!sectionText || sectionText.length < heading.length + 20) {
       const parent = headingNode.parent();
-      sectionText = cleanText(parent.text());
+      sectionText = cleanOneLine(parent.text());
     }
 
     if (!sectionText || sectionText.length < heading.length + 20) {
@@ -371,7 +401,7 @@ function extractSections($) {
 
         if (["h1", "h2", "h3"].includes(tag)) break;
 
-        siblingText += " " + cleanText(next.text());
+        siblingText += " " + cleanOneLine(next.text());
 
         next = next.next();
       }
@@ -411,7 +441,7 @@ function extractContactDetails($, fullText) {
   const addressCandidates = [];
 
   $("[class*='address'], address, footer").each((_, el) => {
-    const text = cleanText($(el).text());
+    const text = cleanOneLine($(el).text());
 
     if (text.length > 10) {
       addressCandidates.push(limitText(text, 400));
@@ -438,42 +468,42 @@ async function extractLivePageText(url) {
 
     $("script, style, noscript, svg, iframe, .popup, .modal, .cookie-banner, .newsletter-popup").remove();
 
-    const title = cleanText($("title").first().text());
+    const title = cleanOneLine($("title").first().text());
 
     const metaDescription =
-      cleanText($('meta[name="description"]').attr("content")) ||
-      cleanText($('meta[property="og:description"]').attr("content")) ||
+      cleanOneLine($('meta[name="description"]').attr("content")) ||
+      cleanOneLine($('meta[property="og:description"]').attr("content")) ||
       "";
 
     const metaTitle =
-      cleanText($('meta[property="og:title"]').attr("content")) ||
+      cleanOneLine($('meta[property="og:title"]').attr("content")) ||
       title;
 
     let headerText = "";
 
     $("header").each((_, el) => {
-      headerText += " " + cleanText($(el).text());
+      headerText += " " + cleanOneLine($(el).text());
     });
 
     let navText = "";
 
     $("nav").each((_, el) => {
-      navText += " " + cleanText($(el).text());
+      navText += " " + cleanOneLine($(el).text());
     });
 
     let footerText = "";
 
     $("footer").each((_, el) => {
-      footerText += " " + cleanText($(el).text());
+      footerText += " " + cleanOneLine($(el).text());
     });
 
-    const heroHeading = cleanText($("h1").first().text());
+    const heroHeading = cleanOneLine($("h1").first().text());
 
     let heroSubheading = "";
     const heroSection = $("h1").first().closest("section, div");
 
     if (heroSection.length) {
-      heroSubheading = cleanText(heroSection.find("p").first().text());
+      heroSubheading = cleanOneLine(heroSection.find("p").first().text());
     }
 
     const h1 = extractTextList($, "h1", 20, 260);
@@ -489,12 +519,12 @@ async function extractLivePageText(url) {
     let mainContent = "";
 
     if ($("main").length) {
-      mainContent = cleanText($("main").text());
+      mainContent = cleanOneLine($("main").text());
     } else {
-      mainContent = cleanText(pageClone.text());
+      mainContent = cleanOneLine(pageClone.text());
     }
 
-    const fullBodyText = cleanText($("body").text());
+    const fullBodyText = cleanOneLine($("body").text());
 
     const structuredContent = {
       meta: {
@@ -521,11 +551,11 @@ async function extractLivePageText(url) {
 
       benefits: extractBenefitCards($),
 
-      processSteps: extractProcessSteps($),
+      processSteps: extractProcessStepsFromHtml($),
 
-      faqs: extractFaqs($),
+      faqs: extractFaqsFromHtml($),
 
-      reviews: extractReviews($),
+      reviews: extractReviewsFromHtml($),
 
       contactDetails: extractContactDetails($, fullBodyText),
 
@@ -561,6 +591,362 @@ async function extractLivePageText(url) {
       structuredContent: {}
     };
   }
+}
+
+function extractMetaFromSource(text) {
+  const compact = cleanText(text);
+
+  const metaTitleMatch =
+    compact.match(/Meta Title\s+([\s\S]*?)(?=\nMeta Description|\nH1:|\nH2:|\nREQUEST|\nWhat is|$)/i);
+
+  const metaDescriptionMatch =
+    compact.match(/Meta Description\s+([\s\S]*?)(?=\nH1:|\nH2:|\nREQUEST|\nWhat is|$)/i);
+
+  return {
+    metaTitle: metaTitleMatch ? cleanOneLine(metaTitleMatch[1]) : "",
+    metaDescription: metaDescriptionMatch ? cleanOneLine(metaDescriptionMatch[1]) : ""
+  };
+}
+
+function extractSourceCtas(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const ctas = [];
+
+  lines.forEach(line => {
+    const lower = line.toLowerCase();
+
+    const isCta =
+      lower.includes("book") ||
+      lower.includes("appointment") ||
+      lower.includes("request") ||
+      lower.includes("schedule") ||
+      lower.includes("contact") ||
+      lower.includes("call today") ||
+      lower.includes("ready to get started");
+
+    if (isCta && line.length <= 180) {
+      ctas.push(line);
+    }
+  });
+
+  return uniqueStrings(ctas).slice(0, 15);
+}
+
+function extractSourceHeadings(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const headingPatterns = [
+    /^H[1-6]:/i,
+    /^What is /i,
+    /^Why /i,
+    /^Who /i,
+    /^What to expect/i,
+    /^Oral health/i,
+    /^At-home care/i,
+    /^About /i,
+    /^Real patient reviews/i,
+    /^Ready to get started/i,
+    /^FAQs/i,
+    /^\d+\.\s*[A-Z]/,
+    /^4 benefits/i
+  ];
+
+  return uniqueStrings(
+    lines.filter(line => headingPatterns.some(pattern => pattern.test(line)))
+  ).slice(0, 40);
+}
+
+function extractSourceBenefits(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const benefits = [];
+
+  lines.forEach(line => {
+    if (
+      line.startsWith("•") ||
+      /^(Relief|Function|Comfort|Protection)\b/i.test(line)
+    ) {
+      benefits.push(line.replace(/^•\s*/, ""));
+    }
+  });
+
+  return uniqueStrings(benefits).slice(0, 20);
+}
+
+function extractSourceSteps(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const steps = [];
+
+  lines.forEach(line => {
+    const match = line.match(/^(\d+)\.\s*(.*)/);
+
+    if (match) {
+      steps.push({
+        number: Number(match[1]),
+        text: limitText(match[2], 800)
+      });
+    }
+  });
+
+  return steps.slice(0, 20);
+}
+
+function extractSourceFaqs(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const faqs = [];
+
+  const startIndex = lines.findIndex(line =>
+    /^FAQs/i.test(line)
+  );
+
+  if (startIndex === -1) return [];
+
+  let currentQuestion = "";
+  let currentAnswer = "";
+
+  for (let i = startIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (!line) continue;
+
+    const isQuestion = line.endsWith("?");
+
+    if (isQuestion) {
+      if (currentQuestion || currentAnswer) {
+        faqs.push({
+          question: currentQuestion,
+          answer: limitText(currentAnswer, 900)
+        });
+      }
+
+      currentQuestion = line;
+      currentAnswer = "";
+    } else {
+      currentAnswer += " " + line;
+    }
+  }
+
+  if (currentQuestion || currentAnswer) {
+    faqs.push({
+      question: currentQuestion,
+      answer: limitText(currentAnswer, 900)
+    });
+  }
+
+  return faqs.slice(0, 20);
+}
+
+function extractSourceReviews(text) {
+  const normalized = cleanText(text);
+  const reviews = [];
+
+  const quoteRegex = /[“"]([^”"]{30,2000})[”"]\s*[–-]\s*([A-Za-z][A-Za-z.\s]{1,60})/g;
+
+  let match;
+
+  while ((match = quoteRegex.exec(normalized)) !== null) {
+    reviews.push({
+      quote: limitText(match[1], 900),
+      author: cleanOneLine(match[2])
+    });
+  }
+
+  return reviews.slice(0, 20);
+}
+
+function extractSourceSections(text) {
+  const lines = cleanText(text)
+    .split("\n")
+    .map(cleanOneLine)
+    .filter(Boolean);
+
+  const headings = extractSourceHeadings(text);
+  const sections = [];
+
+  headings.forEach((heading, index) => {
+    const startIndex = lines.findIndex(line => line === heading);
+
+    if (startIndex === -1) return;
+
+    const nextHeading = headings[index + 1];
+
+    let endIndex = lines.length;
+
+    if (nextHeading) {
+      const possibleEnd = lines.findIndex((line, i) => i > startIndex && line === nextHeading);
+
+      if (possibleEnd !== -1) {
+        endIndex = possibleEnd;
+      }
+    }
+
+    sections.push({
+      heading,
+      text: limitText(lines.slice(startIndex, endIndex).join(" "), 1200)
+    });
+  });
+
+  return sections.slice(0, 25);
+}
+
+function extractSourceStructuredContent(file) {
+  const text = cleanText(file.text || "");
+  const meta = extractMetaFromSource(text);
+
+  return {
+    fileName: file.fileName,
+    meta,
+    headings: extractSourceHeadings(text),
+    ctas: extractSourceCtas(text),
+    benefits: extractSourceBenefits(text),
+    processSteps: extractSourceSteps(text),
+    faqs: extractSourceFaqs(text),
+    reviews: extractSourceReviews(text),
+    sections: extractSourceSections(text),
+    fullText: limitText(text, 8000)
+  };
+}
+
+function buildDeterministicHints(sourceStruct, livePageCompact) {
+  const hints = [];
+
+  const live = livePageCompact.structuredContent || {};
+  const liveText = JSON.stringify(livePageCompact).toLowerCase();
+
+  if (sourceStruct.meta?.metaTitle) {
+    const sourceTitle = sourceStruct.meta.metaTitle;
+    const liveTitle = live.meta?.metaTitle || livePageCompact.title || "";
+
+    if (normalizeForCompare(sourceTitle) !== normalizeForCompare(liveTitle)) {
+      hints.push({
+        type: "META_TITLE_MISMATCH",
+        severity: "HIGH",
+        source: sourceTitle,
+        live: liveTitle
+      });
+    }
+  }
+
+  if (sourceStruct.meta?.metaDescription) {
+    const sourceDescription = sourceStruct.meta.metaDescription;
+    const liveDescription = live.meta?.metaDescription || livePageCompact.metaDescription || "";
+
+    if (!softContains(liveDescription, sourceDescription)) {
+      hints.push({
+        type: "META_DESCRIPTION_MISMATCH",
+        severity: "MEDIUM",
+        source: sourceDescription,
+        live: liveDescription || "not detected"
+      });
+    }
+  }
+
+  sourceStruct.ctas.forEach(sourceCta => {
+    const liveCtas = live.ctas || [];
+
+    const matched = liveCtas.some(cta =>
+      normalizeForCompare(cta.text) === normalizeForCompare(sourceCta)
+    );
+
+    if (!matched) {
+      hints.push({
+        type: "CTA_MISMATCH_OR_MISSING",
+        severity: "HIGH",
+        source: sourceCta,
+        live: liveCtas.map(cta => cta.text).join(" | ") || "no live CTA detected"
+      });
+    }
+  });
+
+  sourceStruct.benefits.forEach(sourceBenefit => {
+    if (!softContains(liveText, sourceBenefit)) {
+      hints.push({
+        type: "BENEFIT_TEXT_MISSING_OR_MODIFIED",
+        severity: "HIGH",
+        source: sourceBenefit,
+        live: "No exact matching live benefit text found"
+      });
+    }
+  });
+
+  sourceStruct.processSteps.forEach(sourceStep => {
+    if (!softContains(liveText, sourceStep.text)) {
+      hints.push({
+        type: "PROCESS_STEP_MISMATCH",
+        severity: "MEDIUM",
+        source: `Step ${sourceStep.number}: ${sourceStep.text}`,
+        live: "No exact matching live process step found"
+      });
+    }
+  });
+
+  sourceStruct.faqs.forEach(sourceFaq => {
+    const liveFaqs = live.faqs || [];
+
+    const matchingQuestion = liveFaqs.find(faq =>
+      normalizeForCompare(faq.question) === normalizeForCompare(sourceFaq.question)
+    );
+
+    if (!matchingQuestion) {
+      hints.push({
+        type: "FAQ_QUESTION_MISSING_OR_CHANGED",
+        severity: "HIGH",
+        source: sourceFaq.question,
+        live: liveFaqs.map(faq => faq.question).join(" | ") || "no live FAQ question detected"
+      });
+
+      return;
+    }
+
+    if (!softContains(matchingQuestion.answer, sourceFaq.answer)) {
+      hints.push({
+        type: "FAQ_ANSWER_MISMATCH",
+        severity: "HIGH",
+        source: `Q: ${sourceFaq.question} | A: ${sourceFaq.answer}`,
+        live: `Q: ${matchingQuestion.question} | A: ${matchingQuestion.answer}`
+      });
+    }
+  });
+
+  sourceStruct.reviews.forEach(sourceReview => {
+    if (!softContains(liveText, sourceReview.author)) {
+      hints.push({
+        type: "REVIEW_AUTHOR_MISSING_OR_CHANGED",
+        severity: "HIGH",
+        source: sourceReview.author,
+        live: "No exact matching live review author found"
+      });
+    }
+
+    if (!softContains(liveText, sourceReview.quote)) {
+      hints.push({
+        type: "REVIEW_QUOTE_MISSING_OR_MODIFIED",
+        severity: "MEDIUM",
+        source: sourceReview.quote,
+        live: "No exact matching live review quote found"
+      });
+    }
+  });
+
+  return hints.slice(0, 80);
 }
 
 async function extractFileText(file) {
@@ -608,7 +994,7 @@ async function extractFileText(file) {
 }
 
 function normalizeForMatch(value) {
-  return cleanText(value)
+  return cleanOneLine(value)
     .toLowerCase()
     .replace(/https?:\/\//g, "")
     .replace(/www\./g, "")
@@ -672,7 +1058,7 @@ function getRelevantFilesForUrl(url, files, maxFiles = 2) {
   return scored.slice(0, 1).map(item => item.file);
 }
 
-function compactFileText(file, maxChars = 9000) {
+function compactFileText(file, maxChars = 7000) {
   return {
     fileName: file.fileName,
     text: limitText(file.text, maxChars)
@@ -889,6 +1275,7 @@ function buildNoSourceReport(url, screenshotResult) {
     sections: [
       {
         section: "Source Availability",
+        severity: "HIGH",
         jsonStatus: "Optional / Not provided",
         liveStatus: "Not compared",
         result: "FAIL",
@@ -928,6 +1315,16 @@ async function auditSinglePage({
     return buildNoSourceReport(url, screenshotResult);
   }
 
+  const sourceStructured = relevantSourceFiles.map(file =>
+    extractSourceStructuredContent(file)
+  );
+
+  const liveCompact = compactLivePageForAi(livePage);
+
+  const deterministicHints = sourceStructured.flatMap(source =>
+    buildDeterministicHints(source, liveCompact)
+  );
+
   const prompt = `
 ${MASTER_QA_PROMPT}
 
@@ -946,19 +1343,29 @@ The LIVE PAGE data includes structuredContent with:
 - globalComponents
 - pageBody
 
-Use these structured chunks for forensic comparison.
-Compare FAQs individually.
-Compare reviews individually.
-Compare CTA buttons individually.
-Compare benefit cards individually.
-Compare process steps individually.
-Compare header/footer/global components only when source/design/JSON includes global component expectations.
+The SOURCE FILE data includes sourceStructuredContent with:
+- meta
+- headings
+- ctas
+- benefits
+- processSteps
+- faqs
+- reviews
+- sections
+- fullText
+
+MANDATORY DETERMINISTIC QA HINTS:
+The backend has already extracted likely mismatches.
+You MUST verify these hints and include valid ones in the final JSON report.
+Do not ignore CTA, FAQ, review, benefit, process, meta, city, or brand hints.
+
+${JSON.stringify(deterministicHints, null, 2)}
 
 AUDIT ONLY THIS ONE PAGE:
 ${url}
 
 LIVE PAGE:
-${JSON.stringify(compactLivePageForAi(livePage), null, 2)}
+${JSON.stringify(liveCompact, null, 2)}
 
 SCREENSHOT QA:
 ${JSON.stringify(
@@ -973,14 +1380,17 @@ ${JSON.stringify(
     2
   )}
 
-MATCHED SOURCE DOC/PDF FILE TEXT:
-${JSON.stringify(relevantSourceFiles.map(file => compactFileText(file, 9000)), null, 2)}
+MATCHED SOURCE DOC/PDF STRUCTURED CONTENT:
+${JSON.stringify(sourceStructured, null, 2)}
+
+MATCHED SOURCE DOC/PDF RAW TEXT EXCERPT:
+${JSON.stringify(relevantSourceFiles.map(file => compactFileText(file, 6000)), null, 2)}
 
 MATCHED ELEMENTOR JSON TEXT:
-${JSON.stringify(relevantJsonFiles.map(file => compactFileText(file, 5000)), null, 2)}
+${JSON.stringify(relevantJsonFiles.map(file => compactFileText(file, 4000)), null, 2)}
 
 MATCHED DESIGN FILE TEXT:
-${JSON.stringify(relevantDesignFiles.map(file => compactFileText(file, 7000)), null, 2)}
+${JSON.stringify(relevantDesignFiles.map(file => compactFileText(file, 5000)), null, 2)}
 `;
 
   const completion = await groq.chat.completions.create({
