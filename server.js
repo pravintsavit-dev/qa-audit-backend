@@ -60,7 +60,7 @@ function cleanText(value) {
     .trim();
 }
 
-function limitText(value, max = 5000) {
+function limitText(value, max = 4000) {
   const text = cleanText(value);
 
   if (text.length <= max) return text;
@@ -88,7 +88,7 @@ function uniqueStrings(items) {
   return output;
 }
 
-function extractTextList($, selector, maxItems = 50, maxLength = 300) {
+function extractTextList($, selector, maxItems = 40, maxLength = 240) {
   const values = [];
 
   $(selector).each((_, el) => {
@@ -136,7 +136,7 @@ function extractCtas($) {
     if (!looksLikeCta && text.length > 40) return;
 
     ctas.push({
-      text: limitText(text, 160),
+      text: limitText(text, 140),
       href,
       tag: el.tagName || ""
     });
@@ -144,15 +144,17 @@ function extractCtas($) {
 
   const seen = new Set();
 
-  return ctas.filter(cta => {
-    const key = `${cta.text}|${cta.href}`.toLowerCase();
+  return ctas
+    .filter(cta => {
+      const key = `${cta.text}|${cta.href}`.toLowerCase();
 
-    if (seen.has(key)) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 40);
+      return true;
+    })
+    .slice(0, 25);
 }
 
 function extractFaqs($) {
@@ -164,8 +166,8 @@ function extractFaqs($) {
 
     if (question || answer) {
       faqs.push({
-        question: limitText(question, 250),
-        answer: limitText(answer, 1200),
+        question: limitText(question, 220),
+        answer: limitText(answer, 800),
         source: "details"
       });
     }
@@ -197,8 +199,8 @@ function extractFaqs($) {
 
     if ((question && question.length > 3) || answer.length > 20) {
       faqs.push({
-        question: limitText(question, 250),
-        answer: limitText(answer, 1200),
+        question: limitText(question, 220),
+        answer: limitText(answer, 800),
         source: "accordion/faq"
       });
     }
@@ -206,24 +208,24 @@ function extractFaqs($) {
 
   const seen = new Set();
 
-  return faqs.filter(faq => {
-    const key = `${faq.question}|${faq.answer}`.toLowerCase();
+  return faqs
+    .filter(faq => {
+      const key = `${faq.question}|${faq.answer}`.toLowerCase();
 
-    if (!faq.question && !faq.answer) return false;
-    if (seen.has(key)) return false;
+      if (!faq.question && !faq.answer) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 40);
+      return true;
+    })
+    .slice(0, 20);
 }
 
 function extractReviews($) {
   const reviews = [];
 
-  $(
-    ".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial'], [class*='rating']"
-  ).each((_, el) => {
+  $(".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial'], [class*='rating']").each((_, el) => {
     const item = $(el);
     const text = cleanText(item.text());
 
@@ -234,30 +236,30 @@ function extractReviews($) {
       "";
 
     reviews.push({
-      author: limitText(author, 120),
-      text: limitText(text, 1600)
+      author: limitText(author, 100),
+      text: limitText(text, 900)
     });
   });
 
   const seen = new Set();
 
-  return reviews.filter(review => {
-    const key = review.text.toLowerCase();
+  return reviews
+    .filter(review => {
+      const key = review.text.toLowerCase();
 
-    if (seen.has(key)) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 25);
+      return true;
+    })
+    .slice(0, 12);
 }
 
 function extractBenefitCards($) {
   const cards = [];
 
-  $(
-    ".elementor-icon-box-wrapper, .elementor-widget-icon-box, .card, .benefit, [class*='benefit'], [class*='icon-box']"
-  ).each((_, el) => {
+  $(".elementor-icon-box-wrapper, .elementor-widget-icon-box, .card, .benefit, [class*='benefit'], [class*='icon-box']").each((_, el) => {
     const item = $(el);
 
     const title =
@@ -270,26 +272,28 @@ function extractBenefitCards($) {
 
     const fullText = cleanText(item.text());
 
-    if (fullText.length < 5 || fullText.length > 800) return;
+    if (fullText.length < 5 || fullText.length > 700) return;
 
     cards.push({
-      title: limitText(title, 160),
-      description: limitText(description, 500),
-      text: limitText(fullText, 800)
+      title: limitText(title, 130),
+      description: limitText(description, 350),
+      text: limitText(fullText, 500)
     });
   });
 
   const seen = new Set();
 
-  return cards.filter(card => {
-    const key = card.text.toLowerCase();
+  return cards
+    .filter(card => {
+      const key = card.text.toLowerCase();
 
-    if (seen.has(key)) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 30);
+      return true;
+    })
+    .slice(0, 18);
 }
 
 function extractProcessSteps($) {
@@ -301,7 +305,7 @@ function extractProcessSteps($) {
     if (text.length > 5) {
       steps.push({
         number: index + 1,
-        text: limitText(text, 1000),
+        text: limitText(text, 700),
         source: "ordered-list"
       });
     }
@@ -310,10 +314,10 @@ function extractProcessSteps($) {
   $(".elementor-accordion-item, .accordion-item, .step, [class*='step'], [class*='process']").each((index, el) => {
     const text = cleanText($(el).text());
 
-    if (text.length > 10 && text.length < 1800) {
+    if (text.length > 10 && text.length < 1400) {
       steps.push({
         number: index + 1,
-        text: limitText(text, 1000),
+        text: limitText(text, 700),
         source: "accordion/process"
       });
     }
@@ -321,15 +325,17 @@ function extractProcessSteps($) {
 
   const seen = new Set();
 
-  return steps.filter(step => {
-    const key = step.text.toLowerCase();
+  return steps
+    .filter(step => {
+      const key = step.text.toLowerCase();
 
-    if (seen.has(key)) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 30);
+      return true;
+    })
+    .slice(0, 16);
 }
 
 function extractSections($) {
@@ -358,7 +364,6 @@ function extractSections($) {
 
     if (!sectionText || sectionText.length < heading.length + 20) {
       let siblingText = "";
-
       let next = headingNode.next();
 
       while (next.length) {
@@ -377,21 +382,23 @@ function extractSections($) {
     sections.push({
       heading,
       level,
-      text: limitText(sectionText, 2500)
+      text: limitText(sectionText, 1000)
     });
   });
 
   const seen = new Set();
 
-  return sections.filter(section => {
-    const key = `${section.level}|${section.heading}|${section.text.slice(0, 120)}`.toLowerCase();
+  return sections
+    .filter(section => {
+      const key = `${section.level}|${section.heading}|${section.text.slice(0, 120)}`.toLowerCase();
 
-    if (seen.has(key)) return false;
+      if (seen.has(key)) return false;
 
-    seen.add(key);
+      seen.add(key);
 
-    return true;
-  }).slice(0, 35);
+      return true;
+    })
+    .slice(0, 18);
 }
 
 function extractContactDetails($, fullText) {
@@ -407,14 +414,14 @@ function extractContactDetails($, fullText) {
     const text = cleanText($(el).text());
 
     if (text.length > 10) {
-      addressCandidates.push(limitText(text, 500));
+      addressCandidates.push(limitText(text, 400));
     }
   });
 
   return {
     phones: uniqueStrings(phoneMatches),
     emails: uniqueStrings(emailMatches),
-    addresses: uniqueStrings(addressCandidates).slice(0, 10)
+    addresses: uniqueStrings(addressCandidates).slice(0, 6)
   };
 }
 
@@ -469,9 +476,9 @@ async function extractLivePageText(url) {
       heroSubheading = cleanText(heroSection.find("p").first().text());
     }
 
-    const h1 = extractTextList($, "h1", 20, 300);
-    const h2 = extractTextList($, "h2", 60, 300);
-    const h3 = extractTextList($, "h3", 80, 300);
+    const h1 = extractTextList($, "h1", 20, 260);
+    const h2 = extractTextList($, "h2", 50, 260);
+    const h3 = extractTextList($, "h3", 60, 260);
 
     const headings = uniqueStrings([...h1, ...h2, ...h3]);
 
@@ -505,7 +512,7 @@ async function extractLivePageText(url) {
         h1,
         h2,
         h3,
-        all: headings
+        all: headings.slice(0, 50)
       },
 
       sections: extractSections($),
@@ -523,42 +530,23 @@ async function extractLivePageText(url) {
       contactDetails: extractContactDetails($, fullBodyText),
 
       globalComponents: {
-        headerText: limitText(headerText, 3000),
-        navText: limitText(navText, 3000),
-        footerText: limitText(footerText, 4000)
+        headerText: limitText(headerText, 1200),
+        navText: limitText(navText, 1000),
+        footerText: limitText(footerText, 1600)
       },
 
       pageBody: {
-        mainContent: limitText(mainContent, 22000),
-        fullBodyText: limitText(fullBodyText, 26000)
+        mainContent: limitText(mainContent, 6000)
       }
     };
 
     return {
       url,
-
       title,
       metaDescription,
-
       heroHeading,
       heroSubheading,
-
-      h1,
-      h2,
-      h3,
-      headings,
-
-      headerText: limitText(headerText, 3000),
-      navText: limitText(navText, 3000),
-      mainContent: limitText(mainContent, 22000),
-      footerText: limitText(footerText, 4000),
-
-      faqs: structuredContent.faqs,
-      reviews: structuredContent.reviews,
-
-      bodyText: limitText(mainContent, 22000),
-      fullBodyText: limitText(fullBodyText, 26000),
-
+      headings: headings.slice(0, 50),
       structuredContent
     };
   } catch (error) {
@@ -569,18 +557,7 @@ async function extractLivePageText(url) {
       metaDescription: "",
       heroHeading: "",
       heroSubheading: "",
-      h1: [],
-      h2: [],
-      h3: [],
       headings: [],
-      headerText: "",
-      navText: "",
-      mainContent: "",
-      footerText: "",
-      faqs: [],
-      reviews: [],
-      bodyText: "",
-      fullBodyText: "",
       structuredContent: {}
     };
   }
@@ -628,6 +605,139 @@ async function extractFileText(file) {
       text: `Could not extract file text: ${error.message}`
     };
   }
+}
+
+function normalizeForMatch(value) {
+  return cleanText(value)
+    .toLowerCase()
+    .replace(/https?:\/\//g, "")
+    .replace(/www\./g, "")
+    .replace(/\.[a-z0-9]+/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getUrlTokens(url) {
+  try {
+    const parsed = new URL(url);
+
+    const pathTokens = parsed.pathname
+      .split("/")
+      .filter(Boolean)
+      .join(" ");
+
+    return normalizeForMatch(`${parsed.hostname} ${pathTokens}`)
+      .split(" ")
+      .filter(token => token.length > 2);
+  } catch {
+    return normalizeForMatch(url)
+      .split(" ")
+      .filter(token => token.length > 2);
+  }
+}
+
+function scoreFileForUrl(url, fileName) {
+  const fileText = normalizeForMatch(fileName);
+  const tokens = getUrlTokens(url);
+
+  let score = 0;
+
+  tokens.forEach(token => {
+    if (fileText.includes(token)) {
+      score += token.length > 4 ? 3 : 1;
+    }
+  });
+
+  return score;
+}
+
+function getRelevantFilesForUrl(url, files, maxFiles = 2) {
+  if (!files.length) return [];
+
+  if (files.length === 1) return files;
+
+  const scored = files
+    .map(file => ({
+      file,
+      score: scoreFileForUrl(url, file.fileName || "")
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const matched = scored.filter(item => item.score > 0);
+
+  if (matched.length) {
+    return matched.slice(0, maxFiles).map(item => item.file);
+  }
+
+  return scored.slice(0, 1).map(item => item.file);
+}
+
+function compactFileText(file, maxChars = 9000) {
+  return {
+    fileName: file.fileName,
+    text: limitText(file.text, maxChars)
+  };
+}
+
+function compactLivePageForAi(page) {
+  const structured = page.structuredContent || {};
+
+  return {
+    url: page.url,
+    title: page.title,
+    metaDescription: page.metaDescription,
+    heroHeading: page.heroHeading,
+    heroSubheading: page.heroSubheading,
+    headings: (page.headings || []).slice(0, 35),
+
+    structuredContent: {
+      meta: structured.meta || {},
+
+      hero: structured.hero || {},
+
+      headingHierarchy: {
+        h1: structured.headingHierarchy?.h1 || [],
+        h2: (structured.headingHierarchy?.h2 || []).slice(0, 35),
+        h3: (structured.headingHierarchy?.h3 || []).slice(0, 35),
+        all: (structured.headingHierarchy?.all || []).slice(0, 45)
+      },
+
+      sections: (structured.sections || []).slice(0, 14).map(section => ({
+        heading: section.heading,
+        level: section.level,
+        text: limitText(section.text, 700)
+      })),
+
+      ctas: (structured.ctas || []).slice(0, 20),
+
+      benefits: (structured.benefits || []).slice(0, 14),
+
+      processSteps: (structured.processSteps || []).slice(0, 12),
+
+      faqs: (structured.faqs || []).slice(0, 12).map(faq => ({
+        question: limitText(faq.question, 200),
+        answer: limitText(faq.answer, 500),
+        source: faq.source
+      })),
+
+      reviews: (structured.reviews || []).slice(0, 8).map(review => ({
+        author: review.author,
+        text: limitText(review.text, 600)
+      })),
+
+      contactDetails: structured.contactDetails || {},
+
+      globalComponents: {
+        headerText: limitText(structured.globalComponents?.headerText || "", 700),
+        navText: limitText(structured.globalComponents?.navText || "", 700),
+        footerText: limitText(structured.globalComponents?.footerText || "", 900)
+      },
+
+      pageBody: {
+        mainContent: limitText(structured.pageBody?.mainContent || "", 4500)
+      }
+    }
+  };
 }
 
 function makeSafeFileName(url) {
@@ -769,38 +879,60 @@ async function saveAuditHistory(urls, reportJson) {
   }
 }
 
-app.post(
-  "/api/run-qa-audit",
-  upload.fields([
-    { name: "contentFiles", maxCount: 30 },
-    { name: "jsonFiles", maxCount: 30 },
-    { name: "designFiles", maxCount: 30 }
-  ]),
-  async (req, res) => {
-    try {
-      const urls = JSON.parse(req.body.urls || "[]");
-
-      if (!urls.length) {
-        return res.status(400).json({
-          error: "At least one live URL is required."
-        });
+function buildNoSourceReport(url, screenshotResult) {
+  return {
+    page: url,
+    sourceFile: "Not provided",
+    jsonFile: "Optional / Not provided",
+    result: "FAIL",
+    mainIssue: "No source DOCX/PDF/XD file provided for strict comparison",
+    sections: [
+      {
+        section: "Source Availability",
+        jsonStatus: "Optional / Not provided",
+        liveStatus: "Not compared",
+        result: "FAIL",
+        notes: "A live URL was provided, but no DOCX/PDF/XD source file was uploaded. Strict content QA requires a source file."
       }
+    ],
+    missingContent: [],
+    duplicatedContent: [],
+    extraContent: [],
+    modifiedContent: [],
+    placementIssues: [],
+    whatToChange: [
+      "Upload the matching DOCX/PDF source file or design PDF/XD file for this page."
+    ],
+    screenshotQA: screenshotResult || {
+      captured: false,
+      viewport: "1920x1080",
+      imageUrl: "",
+      notes: "Screenshot not available."
+    }
+  };
+}
 
-      const contentFiles = req.files?.contentFiles || [];
-      const jsonFiles = req.files?.jsonFiles || [];
-      const designFiles = req.files?.designFiles || [];
+async function auditSinglePage({
+  url,
+  livePage,
+  screenshotResult,
+  sourceFiles,
+  jsonFiles,
+  designFiles
+}) {
+  const relevantSourceFiles = getRelevantFilesForUrl(url, sourceFiles, 2);
+  const relevantJsonFiles = getRelevantFilesForUrl(url, jsonFiles, 2);
+  const relevantDesignFiles = getRelevantFilesForUrl(url, designFiles, 2);
 
-      const livePages = await Promise.all(urls.map(extractLivePageText));
-      const screenshotResults = await Promise.all(urls.map(capturePageScreenshot));
-      const sourceTexts = await Promise.all(contentFiles.map(extractFileText));
-      const jsonTexts = await Promise.all(jsonFiles.map(extractFileText));
-      const designTexts = await Promise.all(designFiles.map(extractFileText));
+  if (!relevantSourceFiles.length && !relevantDesignFiles.length) {
+    return buildNoSourceReport(url, screenshotResult);
+  }
 
-      const prompt = `
+  const prompt = `
 ${MASTER_QA_PROMPT}
 
 IMPORTANT STRUCTURED EXTRACTION NOTE:
-The LIVE PAGES data includes structuredContent with:
+The LIVE PAGE data includes structuredContent with:
 - meta
 - hero
 - headingHierarchy
@@ -822,65 +954,146 @@ Compare benefit cards individually.
 Compare process steps individually.
 Compare header/footer/global components only when source/design/JSON includes global component expectations.
 
-LIVE PAGES:
-${JSON.stringify(livePages, null, 2)}
+AUDIT ONLY THIS ONE PAGE:
+${url}
+
+LIVE PAGE:
+${JSON.stringify(compactLivePageForAi(livePage), null, 2)}
 
 SCREENSHOT QA:
 ${JSON.stringify(
-  screenshotResults.map((shot, index) => ({
-    url: urls[index],
-    captured: shot.captured,
-    viewport: shot.viewport,
-    imageUrl: shot.imageUrl,
-    notes: shot.notes
-  })),
-  null,
-  2
-)}
+    {
+      url,
+      captured: screenshotResult.captured,
+      viewport: screenshotResult.viewport,
+      imageUrl: screenshotResult.imageUrl,
+      notes: screenshotResult.notes
+    },
+    null,
+    2
+  )}
 
-SOURCE DOC/PDF FILE TEXT:
-${JSON.stringify(sourceTexts, null, 2)}
+MATCHED SOURCE DOC/PDF FILE TEXT:
+${JSON.stringify(relevantSourceFiles.map(file => compactFileText(file, 9000)), null, 2)}
 
-ELEMENTOR JSON TEXT:
-${JSON.stringify(jsonTexts, null, 2)}
+MATCHED ELEMENTOR JSON TEXT:
+${JSON.stringify(relevantJsonFiles.map(file => compactFileText(file, 5000)), null, 2)}
 
-DESIGN FILE TEXT:
-${JSON.stringify(designTexts, null, 2)}
+MATCHED DESIGN FILE TEXT:
+${JSON.stringify(relevantDesignFiles.map(file => compactFileText(file, 7000)), null, 2)}
 `;
 
-      const completion = await groq.chat.completions.create({
-        model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-        messages: [
-          {
-            role: "system",
-            content: "Return only valid JSON. No markdown. No headings. No explanation outside JSON."
-          },
-          {
-            role: "user",
-            content: prompt
-          }
-        ],
-        temperature: 0
-      });
+  const completion = await groq.chat.completions.create({
+    model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+    messages: [
+      {
+        role: "system",
+        content: "Return only valid JSON. No markdown. No headings. No explanation outside JSON."
+      },
+      {
+        role: "user",
+        content: prompt
+      }
+    ],
+    temperature: 0
+  });
 
-      const output = completion.choices[0].message.content;
-      const json = extractJsonFromAiOutput(output);
+  const output = completion.choices[0].message.content;
+  const json = extractJsonFromAiOutput(output);
 
-      if (Array.isArray(json.pages)) {
-        json.pages = json.pages.map((page, index) => ({
-          ...page,
-          screenshotQA: screenshotResults[index] || {
-            captured: false,
-            viewport: "1920x1080",
-            imageUrl: "",
-            notes: "Screenshot not available."
-          }
-        }));
+  let pageReport;
+
+  if (Array.isArray(json.pages) && json.pages.length) {
+    pageReport = json.pages[0];
+  } else {
+    pageReport = {
+      page: url,
+      sourceFile: relevantSourceFiles[0]?.fileName || relevantDesignFiles[0]?.fileName || "Not provided",
+      jsonFile: relevantJsonFiles[0]?.fileName || "Optional / Not provided",
+      result: json.overallResult || "FAIL",
+      mainIssue: "AI returned incomplete page report",
+      sections: [],
+      missingContent: [],
+      duplicatedContent: [],
+      extraContent: [],
+      modifiedContent: [],
+      placementIssues: [],
+      whatToChange: []
+    };
+  }
+
+  return {
+    ...pageReport,
+    page: pageReport.page || url,
+    sourceFile:
+      pageReport.sourceFile ||
+      relevantSourceFiles[0]?.fileName ||
+      relevantDesignFiles[0]?.fileName ||
+      "Not provided",
+    jsonFile:
+      pageReport.jsonFile ||
+      relevantJsonFiles[0]?.fileName ||
+      "Optional / Not provided",
+    screenshotQA: screenshotResult
+  };
+}
+
+app.post(
+  "/api/run-qa-audit",
+  upload.fields([
+    { name: "contentFiles", maxCount: 30 },
+    { name: "jsonFiles", maxCount: 30 },
+    { name: "designFiles", maxCount: 30 }
+  ]),
+  async (req, res) => {
+    try {
+      const urls = JSON.parse(req.body.urls || "[]");
+
+      if (!urls.length) {
+        return res.status(400).json({
+          error: "At least one live URL is required."
+        });
       }
 
-      await saveAuditHistory(urls, json);
+      const contentFiles = req.files?.contentFiles || [];
+      const jsonFileUploads = req.files?.jsonFiles || [];
+      const designFileUploads = req.files?.designFiles || [];
 
-      res.json(json);
+      const livePages = await Promise.all(urls.map(extractLivePageText));
+      const screenshotResults = await Promise.all(urls.map(capturePageScreenshot));
+
+      const sourceTexts = await Promise.all(contentFiles.map(extractFileText));
+      const jsonTexts = await Promise.all(jsonFileUploads.map(extractFileText));
+      const designTexts = await Promise.all(designFileUploads.map(extractFileText));
+
+      const pages = [];
+
+      for (let i = 0; i < urls.length; i++) {
+        const pageReport = await auditSinglePage({
+          url: urls[i],
+          livePage: livePages[i],
+          screenshotResult: screenshotResults[i],
+          sourceFiles: sourceTexts,
+          jsonFiles: jsonTexts,
+          designFiles: designTexts
+        });
+
+        pages.push(pageReport);
+      }
+
+      const overallResult =
+        pages.every(page => page.result === "PASS")
+          ? "PASS"
+          : "FAIL";
+
+      const reportJson = {
+        overallResult,
+        pages
+      };
+
+      await saveAuditHistory(urls, reportJson);
+
+      res.json(reportJson);
     } catch (error) {
       console.error(error);
 
