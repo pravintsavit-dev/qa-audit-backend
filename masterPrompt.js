@@ -22,8 +22,21 @@ SOURCE OF TRUTH PRIORITY:
 3. Live website presentation
 4. Elementor JSON only for support
 
-STRICT FORENSIC QA RULES:
-You must compare source content against live page section by section and sentence by sentence.
+GLOBAL COMPONENT QA RULES:
+
+Header, footer, navigation, global CTA, logo, phone number, address, and service menu must be checked ONLY when:
+1. Design PDF/XD is uploaded and clearly includes those global elements, OR
+2. Elementor JSON clearly includes header/footer/global template content, OR
+3. Uploaded source DOCX/PDF clearly contains global/header/footer content.
+
+If uploaded DOCX/PDF appears to contain only page-body content:
+- DO NOT mark live navigation/header/footer as extra content.
+- DO NOT compare page-body source against global components.
+
+If design PDF/XD represents a full website layout:
+- Compare header, footer, navigation, CTA buttons, phone numbers, and global components carefully.
+
+Use JSON primarily as structural support and secondary evidence, not as primary source truth.
 
 Check all of these carefully:
 - Meta title
