@@ -56,7 +56,7 @@ app.get("/api/audit-history", async (req, res) => {
 async function extractLivePageText(url) {
   try {
     const response = await axios.get(url, {
-      timeout: 20000,
+      timeout: 30000,
       headers: {
         "User-Agent": "Mozilla/5.0 QA-Audit-Bot"
       }
@@ -64,25 +64,121 @@ async function extractLivePageText(url) {
 
     const $ = cheerio.load(response.data);
 
-    $("script, style, noscript, svg").remove();
+    $("script, style, noscript, svg, iframe, .popup, .modal, .cookie-banner, .newsletter-popup").remove();
 
-    const title = $("title").text().trim();
-    const h1 = $("h1").map((_, el) => $(el).text().trim()).get();
-    const h2 = $("h2").map((_, el) => $(el).text().trim()).get();
-    const bodyText = $("body").text().replace(/\s+/g, " ").trim();
+    const title = $("title").first().text().replace(/\s+/g, " ").trim();
+
+    const metaDescription =
+      $('meta[name="description"]').attr("content") ||
+      $('meta[property="og:description"]').attr("content") ||
+      "";
+
+    let headerText = "";
+    $("header").each((_, el) => {
+      headerText += " " + $(el).text().replace(/\s+/g, " ").trim();
+    });
+
+    let navText = "";
+    $("nav").each((_, el) => {
+      navText += " " + $(el).text().replace(/\s+/g, " ").trim();
+    });
+
+    const heroHeading = $("h1").first().text().replace(/\s+/g, " ").trim();
+
+    let heroSubheading = "";
+    const heroSection = $("h1").first().closest("section, div");
+
+    if (heroSection.length) {
+      heroSubheading = heroSection.find("p").first().text().replace(/\s+/g, " ").trim();
+    }
+
+    const h1 = $("h1").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
+    const h2 = $("h2").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
+    const h3 = $("h3").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
+
+    const headings = $("h1, h2, h3")
+      .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
+      .get()
+      .filter(Boolean);
+
+    let mainContent = "";
+
+    if ($("main").length) {
+      mainContent = $("main").text().replace(/\s+/g, " ").trim();
+    } else {
+      const bodyClone = $("body").clone();
+
+      bodyClone.find("header, nav, footer, script, style, noscript, svg, iframe").remove();
+
+      mainContent = bodyClone.text().replace(/\s+/g, " ").trim();
+    }
+
+    const faqs = [];
+
+    $(".faq, .accordion, details, [class*='faq'], [class*='accordion']").each((_, el) => {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+
+      if (text.length > 10) {
+        faqs.push(text);
+      }
+    });
+
+    const reviews = [];
+
+    $(".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial']").each((_, el) => {
+      const text = $(el).text().replace(/\s+/g, " ").trim();
+
+      if (text.length > 15) {
+        reviews.push(text);
+      }
+    });
+
+    let footerText = "";
+    $("footer").each((_, el) => {
+      footerText += " " + $(el).text().replace(/\s+/g, " ").trim();
+    });
+
+    const fullBodyText = $("body").text().replace(/\s+/g, " ").trim();
 
     return {
       url,
       title,
+      metaDescription,
+      heroHeading,
+      heroSubheading,
       h1,
       h2,
-      bodyText
+      h3,
+      headings,
+      headerText: headerText.trim(),
+      navText: navText.trim(),
+      mainContent,
+      footerText: footerText.trim(),
+      faqs,
+      reviews,
+      bodyText: mainContent,
+      fullBodyText
     };
   } catch (error) {
     return {
       url,
       error: `Could not access live page: ${error.message}`,
-      bodyText: ""
+      title: "",
+      metaDescription: "",
+      heroHeading: "",
+      heroSubheading: "",
+      h1: [],
+      h2: [],
+      h3: [],
+      headings: [],
+      headerText: "",
+      navText: "",
+      mainContent: "",
+      footerText: "",
+      faqs: [],
+      reviews: [],
+      bodyText: "",
+      fullBodyText: ""
     };
   }
 }
