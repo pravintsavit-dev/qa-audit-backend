@@ -53,6 +53,371 @@ app.get("/api/audit-history", async (req, res) => {
   }
 });
 
+function cleanText(value) {
+  return String(value || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function limitText(value, max = 5000) {
+  const text = cleanText(value);
+
+  if (text.length <= max) return text;
+
+  return text.slice(0, max) + " ...[truncated]";
+}
+
+function uniqueStrings(items) {
+  const seen = new Set();
+  const output = [];
+
+  items.forEach(item => {
+    const text = cleanText(item);
+
+    if (!text) return;
+
+    const key = text.toLowerCase();
+
+    if (!seen.has(key)) {
+      seen.add(key);
+      output.push(text);
+    }
+  });
+
+  return output;
+}
+
+function extractTextList($, selector, maxItems = 50, maxLength = 300) {
+  const values = [];
+
+  $(selector).each((_, el) => {
+    const text = cleanText($(el).text());
+
+    if (text && text.length > 1) {
+      values.push(limitText(text, maxLength));
+    }
+  });
+
+  return uniqueStrings(values).slice(0, maxItems);
+}
+
+function extractCtas($) {
+  const ctas = [];
+
+  $("a, button, input[type='button'], input[type='submit']").each((_, el) => {
+    const node = $(el);
+
+    const text =
+      cleanText(node.text()) ||
+      cleanText(node.attr("value")) ||
+      cleanText(node.attr("aria-label"));
+
+    const href = node.attr("href") || "";
+
+    if (!text) return;
+
+    const lower = text.toLowerCase();
+
+    const looksLikeCta =
+      lower.includes("book") ||
+      lower.includes("appointment") ||
+      lower.includes("request") ||
+      lower.includes("schedule") ||
+      lower.includes("contact") ||
+      lower.includes("call") ||
+      lower.includes("learn") ||
+      lower.includes("consult") ||
+      lower.includes("start") ||
+      lower.includes("visit") ||
+      node.is("button") ||
+      node.attr("type") === "submit";
+
+    if (!looksLikeCta && text.length > 40) return;
+
+    ctas.push({
+      text: limitText(text, 160),
+      href,
+      tag: el.tagName || ""
+    });
+  });
+
+  const seen = new Set();
+
+  return ctas.filter(cta => {
+    const key = `${cta.text}|${cta.href}`.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 40);
+}
+
+function extractFaqs($) {
+  const faqs = [];
+
+  $("details").each((_, el) => {
+    const question = cleanText($(el).find("summary").first().text());
+    const answer = cleanText($(el).text()).replace(question, "").trim();
+
+    if (question || answer) {
+      faqs.push({
+        question: limitText(question, 250),
+        answer: limitText(answer, 1200),
+        source: "details"
+      });
+    }
+  });
+
+  $(".elementor-accordion-item, .elementor-toggle-item, .accordion-item, .faq-item, [class*='faq'], [class*='accordion']").each((_, el) => {
+    const item = $(el);
+
+    const question =
+      cleanText(item.find(".elementor-tab-title").first().text()) ||
+      cleanText(item.find(".accordion-title").first().text()) ||
+      cleanText(item.find(".faq-question").first().text()) ||
+      cleanText(item.find("h2,h3,h4,button").first().text());
+
+    let answer =
+      cleanText(item.find(".elementor-tab-content").first().text()) ||
+      cleanText(item.find(".accordion-content").first().text()) ||
+      cleanText(item.find(".faq-answer").first().text());
+
+    if (!answer) {
+      const allText = cleanText(item.text());
+
+      if (question && allText.includes(question)) {
+        answer = cleanText(allText.replace(question, ""));
+      } else {
+        answer = allText;
+      }
+    }
+
+    if ((question && question.length > 3) || answer.length > 20) {
+      faqs.push({
+        question: limitText(question, 250),
+        answer: limitText(answer, 1200),
+        source: "accordion/faq"
+      });
+    }
+  });
+
+  const seen = new Set();
+
+  return faqs.filter(faq => {
+    const key = `${faq.question}|${faq.answer}`.toLowerCase();
+
+    if (!faq.question && !faq.answer) return false;
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 40);
+}
+
+function extractReviews($) {
+  const reviews = [];
+
+  $(
+    ".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial'], [class*='rating']"
+  ).each((_, el) => {
+    const item = $(el);
+    const text = cleanText(item.text());
+
+    if (text.length < 20) return;
+
+    const author =
+      cleanText(item.find(".author,.name,.reviewer,[class*='author'],[class*='name']").first().text()) ||
+      "";
+
+    reviews.push({
+      author: limitText(author, 120),
+      text: limitText(text, 1600)
+    });
+  });
+
+  const seen = new Set();
+
+  return reviews.filter(review => {
+    const key = review.text.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 25);
+}
+
+function extractBenefitCards($) {
+  const cards = [];
+
+  $(
+    ".elementor-icon-box-wrapper, .elementor-widget-icon-box, .card, .benefit, [class*='benefit'], [class*='icon-box']"
+  ).each((_, el) => {
+    const item = $(el);
+
+    const title =
+      cleanText(item.find(".elementor-icon-box-title").first().text()) ||
+      cleanText(item.find("h2,h3,h4,strong").first().text());
+
+    const description =
+      cleanText(item.find(".elementor-icon-box-description").first().text()) ||
+      cleanText(item.find("p").first().text());
+
+    const fullText = cleanText(item.text());
+
+    if (fullText.length < 5 || fullText.length > 800) return;
+
+    cards.push({
+      title: limitText(title, 160),
+      description: limitText(description, 500),
+      text: limitText(fullText, 800)
+    });
+  });
+
+  const seen = new Set();
+
+  return cards.filter(card => {
+    const key = card.text.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 30);
+}
+
+function extractProcessSteps($) {
+  const steps = [];
+
+  $("ol li").each((index, el) => {
+    const text = cleanText($(el).text());
+
+    if (text.length > 5) {
+      steps.push({
+        number: index + 1,
+        text: limitText(text, 1000),
+        source: "ordered-list"
+      });
+    }
+  });
+
+  $(".elementor-accordion-item, .accordion-item, .step, [class*='step'], [class*='process']").each((index, el) => {
+    const text = cleanText($(el).text());
+
+    if (text.length > 10 && text.length < 1800) {
+      steps.push({
+        number: index + 1,
+        text: limitText(text, 1000),
+        source: "accordion/process"
+      });
+    }
+  });
+
+  const seen = new Set();
+
+  return steps.filter(step => {
+    const key = step.text.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 30);
+}
+
+function extractSections($) {
+  const sections = [];
+
+  $("h1, h2, h3").each((_, el) => {
+    const headingNode = $(el);
+
+    const heading = cleanText(headingNode.text());
+    const level = String(el.tagName || "").toUpperCase();
+
+    if (!heading || heading.length < 2) return;
+
+    let sectionText = "";
+
+    const closestSection = headingNode.closest("section");
+
+    if (closestSection.length) {
+      sectionText = cleanText(closestSection.text());
+    }
+
+    if (!sectionText || sectionText.length < heading.length + 20) {
+      const parent = headingNode.parent();
+      sectionText = cleanText(parent.text());
+    }
+
+    if (!sectionText || sectionText.length < heading.length + 20) {
+      let siblingText = "";
+
+      let next = headingNode.next();
+
+      while (next.length) {
+        const tag = String(next[0].tagName || "").toLowerCase();
+
+        if (["h1", "h2", "h3"].includes(tag)) break;
+
+        siblingText += " " + cleanText(next.text());
+
+        next = next.next();
+      }
+
+      sectionText = `${heading} ${siblingText}`;
+    }
+
+    sections.push({
+      heading,
+      level,
+      text: limitText(sectionText, 2500)
+    });
+  });
+
+  const seen = new Set();
+
+  return sections.filter(section => {
+    const key = `${section.level}|${section.heading}|${section.text.slice(0, 120)}`.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+
+    return true;
+  }).slice(0, 35);
+}
+
+function extractContactDetails($, fullText) {
+  const phoneMatches =
+    fullText.match(/(\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]?\d{3}[\s.-]?\d{4}/g) || [];
+
+  const emailMatches =
+    fullText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
+
+  const addressCandidates = [];
+
+  $("[class*='address'], address, footer").each((_, el) => {
+    const text = cleanText($(el).text());
+
+    if (text.length > 10) {
+      addressCandidates.push(limitText(text, 500));
+    }
+  });
+
+  return {
+    phones: uniqueStrings(phoneMatches),
+    emails: uniqueStrings(emailMatches),
+    addresses: uniqueStrings(addressCandidates).slice(0, 10)
+  };
+}
+
 async function extractLivePageText(url) {
   try {
     const response = await axios.get(url, {
@@ -66,98 +431,135 @@ async function extractLivePageText(url) {
 
     $("script, style, noscript, svg, iframe, .popup, .modal, .cookie-banner, .newsletter-popup").remove();
 
-    const title = $("title").first().text().replace(/\s+/g, " ").trim();
+    const title = cleanText($("title").first().text());
 
     const metaDescription =
-      $('meta[name="description"]').attr("content") ||
-      $('meta[property="og:description"]').attr("content") ||
+      cleanText($('meta[name="description"]').attr("content")) ||
+      cleanText($('meta[property="og:description"]').attr("content")) ||
       "";
 
+    const metaTitle =
+      cleanText($('meta[property="og:title"]').attr("content")) ||
+      title;
+
     let headerText = "";
+
     $("header").each((_, el) => {
-      headerText += " " + $(el).text().replace(/\s+/g, " ").trim();
+      headerText += " " + cleanText($(el).text());
     });
 
     let navText = "";
+
     $("nav").each((_, el) => {
-      navText += " " + $(el).text().replace(/\s+/g, " ").trim();
+      navText += " " + cleanText($(el).text());
     });
 
-    const heroHeading = $("h1").first().text().replace(/\s+/g, " ").trim();
+    let footerText = "";
+
+    $("footer").each((_, el) => {
+      footerText += " " + cleanText($(el).text());
+    });
+
+    const heroHeading = cleanText($("h1").first().text());
 
     let heroSubheading = "";
     const heroSection = $("h1").first().closest("section, div");
 
     if (heroSection.length) {
-      heroSubheading = heroSection.find("p").first().text().replace(/\s+/g, " ").trim();
+      heroSubheading = cleanText(heroSection.find("p").first().text());
     }
 
-    const h1 = $("h1").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
-    const h2 = $("h2").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
-    const h3 = $("h3").map((_, el) => $(el).text().replace(/\s+/g, " ").trim()).get();
+    const h1 = extractTextList($, "h1", 20, 300);
+    const h2 = extractTextList($, "h2", 60, 300);
+    const h3 = extractTextList($, "h3", 80, 300);
 
-    const headings = $("h1, h2, h3")
-      .map((_, el) => $(el).text().replace(/\s+/g, " ").trim())
-      .get()
-      .filter(Boolean);
+    const headings = uniqueStrings([...h1, ...h2, ...h3]);
+
+    const pageClone = $("body").clone();
+
+    pageClone.find("header, nav, footer, script, style, noscript, svg, iframe").remove();
 
     let mainContent = "";
 
     if ($("main").length) {
-      mainContent = $("main").text().replace(/\s+/g, " ").trim();
+      mainContent = cleanText($("main").text());
     } else {
-      const bodyClone = $("body").clone();
-
-      bodyClone.find("header, nav, footer, script, style, noscript, svg, iframe").remove();
-
-      mainContent = bodyClone.text().replace(/\s+/g, " ").trim();
+      mainContent = cleanText(pageClone.text());
     }
 
-    const faqs = [];
+    const fullBodyText = cleanText($("body").text());
 
-    $(".faq, .accordion, details, [class*='faq'], [class*='accordion']").each((_, el) => {
-      const text = $(el).text().replace(/\s+/g, " ").trim();
+    const structuredContent = {
+      meta: {
+        title,
+        metaTitle,
+        metaDescription
+      },
 
-      if (text.length > 10) {
-        faqs.push(text);
+      hero: {
+        heading: heroHeading,
+        subheading: heroSubheading
+      },
+
+      headingHierarchy: {
+        h1,
+        h2,
+        h3,
+        all: headings
+      },
+
+      sections: extractSections($),
+
+      ctas: extractCtas($),
+
+      benefits: extractBenefitCards($),
+
+      processSteps: extractProcessSteps($),
+
+      faqs: extractFaqs($),
+
+      reviews: extractReviews($),
+
+      contactDetails: extractContactDetails($, fullBodyText),
+
+      globalComponents: {
+        headerText: limitText(headerText, 3000),
+        navText: limitText(navText, 3000),
+        footerText: limitText(footerText, 4000)
+      },
+
+      pageBody: {
+        mainContent: limitText(mainContent, 22000),
+        fullBodyText: limitText(fullBodyText, 26000)
       }
-    });
-
-    const reviews = [];
-
-    $(".review, .testimonial, .swiper-slide, [class*='review'], [class*='testimonial']").each((_, el) => {
-      const text = $(el).text().replace(/\s+/g, " ").trim();
-
-      if (text.length > 15) {
-        reviews.push(text);
-      }
-    });
-
-    let footerText = "";
-    $("footer").each((_, el) => {
-      footerText += " " + $(el).text().replace(/\s+/g, " ").trim();
-    });
-
-    const fullBodyText = $("body").text().replace(/\s+/g, " ").trim();
+    };
 
     return {
       url,
+
       title,
       metaDescription,
+
       heroHeading,
       heroSubheading,
+
       h1,
       h2,
       h3,
       headings,
-      headerText: headerText.trim(),
-      navText: navText.trim(),
-      mainContent,
-      footerText: footerText.trim(),
-      faqs,
-      reviews,
-      bodyText: mainContent,
-      fullBodyText
+
+      headerText: limitText(headerText, 3000),
+      navText: limitText(navText, 3000),
+      mainContent: limitText(mainContent, 22000),
+      footerText: limitText(footerText, 4000),
+
+      faqs: structuredContent.faqs,
+      reviews: structuredContent.reviews,
+
+      bodyText: limitText(mainContent, 22000),
+      fullBodyText: limitText(fullBodyText, 26000),
+
+      structuredContent
     };
   } catch (error) {
     return {
@@ -178,7 +580,8 @@ async function extractLivePageText(url) {
       faqs: [],
       reviews: [],
       bodyText: "",
-      fullBodyText: ""
+      fullBodyText: "",
+      structuredContent: {}
     };
   }
 }
@@ -395,6 +798,29 @@ app.post(
 
       const prompt = `
 ${MASTER_QA_PROMPT}
+
+IMPORTANT STRUCTURED EXTRACTION NOTE:
+The LIVE PAGES data includes structuredContent with:
+- meta
+- hero
+- headingHierarchy
+- sections
+- ctas
+- benefits
+- processSteps
+- faqs
+- reviews
+- contactDetails
+- globalComponents
+- pageBody
+
+Use these structured chunks for forensic comparison.
+Compare FAQs individually.
+Compare reviews individually.
+Compare CTA buttons individually.
+Compare benefit cards individually.
+Compare process steps individually.
+Compare header/footer/global components only when source/design/JSON includes global component expectations.
 
 LIVE PAGES:
 ${JSON.stringify(livePages, null, 2)}
