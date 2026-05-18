@@ -8,7 +8,6 @@ import mammoth from "mammoth";
 import pdfParse from "pdf-parse";
 import Groq from "groq-sdk";
 import { createClient } from "@supabase/supabase-js";
-import MASTER_QA_PROMPT from "./masterPrompt.js";
 
 dotenv.config();
 
@@ -29,6 +28,84 @@ const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
+
+const RUNTIME_QA_PROMPT = `
+You are Vayu Sentinel, a strict forensic website content QA auditor.
+
+INPUT RULES:
+- Live URL is required.
+- DOCX/PDF source is optional, but if uploaded it is PRIMARY source truth.
+- Design PDF/XD is fallback source truth if DOCX/PDF is unavailable.
+- JSON is optional support only.
+- Do not fail because JSON/design is missing.
+- If no source/design is uploaded, fail with clear reason.
+
+QA PRIORITY:
+1. Compare source DOCX/PDF or design content to live page.
+2. Use structured live chunks: meta, hero, headings, sections, CTAs, benefits, steps, FAQs, reviews.
+3. Use deterministic mismatch hints as mandatory evidence to verify.
+4. Do not compare page-body DOC against header/footer/nav unless source/design/JSON clearly includes global components.
+
+STRICT CHECKS:
+- Meta title and description
+- Hero heading/subheading
+- CTAs
+- Intro/body paragraphs
+- Section headings
+- Benefits/cards
+- Process/numbered steps
+- Reviews and author attribution
+- FAQs question and answer
+- Brand/practice name
+- City/location
+- Phone/email/address
+- Missing, extra, duplicated, modified, misplaced content
+
+IMPORTANT:
+- Do not summarize issues broadly.
+- Every real mismatch must be itemized.
+- Include source wording and live wording where possible.
+- CTA mismatch, FAQ mismatch, review author mismatch, benefit mismatch, process step mismatch must be explicitly listed if present.
+- Extra non-conflicting reviews/education/CTA content should be INFO/LOW, not FAIL reason.
+- Wrong city, brand, phone, treatment, CTA intent, FAQ meaning, review author = HIGH severity.
+- Minor punctuation/capitalization = LOW.
+
+OUTPUT:
+Return ONLY valid JSON.
+No markdown.
+No text before or after JSON.
+First character must be { and last character must be }.
+
+JSON structure:
+{
+  "overallResult": "PASS or FAIL",
+  "pages": [
+    {
+      "page": "URL",
+      "sourceFile": "matched source file or Not provided",
+      "jsonFile": "matched json file or Optional / Not provided",
+      "result": "PASS or FAIL",
+      "mainIssue": "short manager-ready summary",
+      "sections": [
+        {
+          "section": "section name",
+          "severity": "HIGH / MEDIUM / LOW / INFO",
+          "jsonStatus": "Found / Missing / Optional / Not provided",
+          "liveStatus": "Matched / Missing / Modified / Extra / Could not access",
+          "result": "PASS or FAIL",
+          "notes": "specific evidence with source vs live wording"
+        }
+      ],
+      "missingContent": [],
+      "duplicatedContent": [],
+      "extraContent": [],
+      "modifiedContent": [],
+      "placementIssues": [],
+      "whatToChange": []
+    }
+  ]
+}
+`;
 
 app.get("/", (req, res) => {
   res.json({
@@ -70,7 +147,7 @@ function cleanOneLine(value) {
     .trim();
 }
 
-function limitText(value, max = 4000) {
+function limitText(value, max = 3000) {
   const text = cleanOneLine(value);
 
   if (text.length <= max) return text;
@@ -118,7 +195,7 @@ function softContains(haystack, needle) {
   return h.includes(n);
 }
 
-function extractTextList($, selector, maxItems = 40, maxLength = 240) {
+function extractTextList($, selector, maxItems = 35, maxLength = 220) {
   const values = [];
 
   $(selector).each((_, el) => {
@@ -166,7 +243,7 @@ function extractCtas($) {
     if (!looksLikeCta && text.length > 40) return;
 
     ctas.push({
-      text: limitText(text, 140),
+      text: limitText(text, 120),
       href,
       tag: el.tagName || ""
     });
@@ -184,7 +261,7 @@ function extractCtas($) {
 
       return true;
     })
-    .slice(0, 25);
+    .slice(0, 15);
 }
 
 function extractFaqsFromHtml($) {
@@ -196,8 +273,8 @@ function extractFaqsFromHtml($) {
 
     if (question || answer) {
       faqs.push({
-        question: limitText(question, 220),
-        answer: limitText(answer, 800),
+        question: limitText(question, 180),
+        answer: limitText(answer, 420),
         source: "details"
       });
     }
@@ -229,8 +306,8 @@ function extractFaqsFromHtml($) {
 
     if ((question && question.length > 3) || answer.length > 20) {
       faqs.push({
-        question: limitText(question, 220),
-        answer: limitText(answer, 800),
+        question: limitText(question, 180),
+        answer: limitText(answer, 420),
         source: "accordion/faq"
       });
     }
@@ -249,7 +326,7 @@ function extractFaqsFromHtml($) {
 
       return true;
     })
-    .slice(0, 20);
+    .slice(0, 10);
 }
 
 function extractReviewsFromHtml($) {
@@ -266,8 +343,8 @@ function extractReviewsFromHtml($) {
       "";
 
     reviews.push({
-      author: limitText(author, 100),
-      text: limitText(text, 900)
+      author: limitText(author, 90),
+      text: limitText(text, 450)
     });
   });
 
@@ -283,7 +360,7 @@ function extractReviewsFromHtml($) {
 
       return true;
     })
-    .slice(0, 12);
+    .slice(0, 6);
 }
 
 function extractBenefitCards($) {
@@ -305,9 +382,9 @@ function extractBenefitCards($) {
     if (fullText.length < 5 || fullText.length > 700) return;
 
     cards.push({
-      title: limitText(title, 130),
-      description: limitText(description, 350),
-      text: limitText(fullText, 500)
+      title: limitText(title, 120),
+      description: limitText(description, 250),
+      text: limitText(fullText, 350)
     });
   });
 
@@ -323,7 +400,7 @@ function extractBenefitCards($) {
 
       return true;
     })
-    .slice(0, 18);
+    .slice(0, 10);
 }
 
 function extractProcessStepsFromHtml($) {
@@ -335,7 +412,7 @@ function extractProcessStepsFromHtml($) {
     if (text.length > 5) {
       steps.push({
         number: index + 1,
-        text: limitText(text, 700),
+        text: limitText(text, 420),
         source: "ordered-list"
       });
     }
@@ -347,7 +424,7 @@ function extractProcessStepsFromHtml($) {
     if (text.length > 10 && text.length < 1400) {
       steps.push({
         number: index + 1,
-        text: limitText(text, 700),
+        text: limitText(text, 420),
         source: "accordion/process"
       });
     }
@@ -365,7 +442,7 @@ function extractProcessStepsFromHtml($) {
 
       return true;
     })
-    .slice(0, 16);
+    .slice(0, 8);
 }
 
 function extractSections($) {
@@ -392,27 +469,10 @@ function extractSections($) {
       sectionText = cleanOneLine(parent.text());
     }
 
-    if (!sectionText || sectionText.length < heading.length + 20) {
-      let siblingText = "";
-      let next = headingNode.next();
-
-      while (next.length) {
-        const tag = String(next[0].tagName || "").toLowerCase();
-
-        if (["h1", "h2", "h3"].includes(tag)) break;
-
-        siblingText += " " + cleanOneLine(next.text());
-
-        next = next.next();
-      }
-
-      sectionText = `${heading} ${siblingText}`;
-    }
-
     sections.push({
       heading,
       level,
-      text: limitText(sectionText, 1000)
+      text: limitText(sectionText, 500)
     });
   });
 
@@ -420,7 +480,7 @@ function extractSections($) {
 
   return sections
     .filter(section => {
-      const key = `${section.level}|${section.heading}|${section.text.slice(0, 120)}`.toLowerCase();
+      const key = `${section.level}|${section.heading}|${section.text.slice(0, 100)}`.toLowerCase();
 
       if (seen.has(key)) return false;
 
@@ -428,7 +488,7 @@ function extractSections($) {
 
       return true;
     })
-    .slice(0, 18);
+    .slice(0, 10);
 }
 
 function extractContactDetails($, fullText) {
@@ -438,20 +498,9 @@ function extractContactDetails($, fullText) {
   const emailMatches =
     fullText.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [];
 
-  const addressCandidates = [];
-
-  $("[class*='address'], address, footer").each((_, el) => {
-    const text = cleanOneLine($(el).text());
-
-    if (text.length > 10) {
-      addressCandidates.push(limitText(text, 400));
-    }
-  });
-
   return {
     phones: uniqueStrings(phoneMatches),
-    emails: uniqueStrings(emailMatches),
-    addresses: uniqueStrings(addressCandidates).slice(0, 6)
+    emails: uniqueStrings(emailMatches)
   };
 }
 
@@ -506,9 +555,9 @@ async function extractLivePageText(url) {
       heroSubheading = cleanOneLine(heroSection.find("p").first().text());
     }
 
-    const h1 = extractTextList($, "h1", 20, 260);
-    const h2 = extractTextList($, "h2", 50, 260);
-    const h3 = extractTextList($, "h3", 60, 260);
+    const h1 = extractTextList($, "h1", 10, 220);
+    const h2 = extractTextList($, "h2", 30, 220);
+    const h3 = extractTextList($, "h3", 30, 220);
 
     const headings = uniqueStrings([...h1, ...h2, ...h3]);
 
@@ -542,7 +591,7 @@ async function extractLivePageText(url) {
         h1,
         h2,
         h3,
-        all: headings.slice(0, 50)
+        all: headings.slice(0, 35)
       },
 
       sections: extractSections($),
@@ -560,13 +609,13 @@ async function extractLivePageText(url) {
       contactDetails: extractContactDetails($, fullBodyText),
 
       globalComponents: {
-        headerText: limitText(headerText, 1200),
-        navText: limitText(navText, 1000),
-        footerText: limitText(footerText, 1600)
+        headerText: limitText(headerText, 500),
+        navText: limitText(navText, 500),
+        footerText: limitText(footerText, 700)
       },
 
       pageBody: {
-        mainContent: limitText(mainContent, 6000)
+        mainContent: limitText(mainContent, 2500)
       }
     };
 
@@ -576,7 +625,7 @@ async function extractLivePageText(url) {
       metaDescription,
       heroHeading,
       heroSubheading,
-      headings: headings.slice(0, 50),
+      headings: headings.slice(0, 35),
       structuredContent
     };
   } catch (error) {
@@ -628,12 +677,12 @@ function extractSourceCtas(text) {
       lower.includes("call today") ||
       lower.includes("ready to get started");
 
-    if (isCta && line.length <= 180) {
+    if (isCta && line.length <= 160) {
       ctas.push(line);
     }
   });
 
-  return uniqueStrings(ctas).slice(0, 15);
+  return uniqueStrings(ctas).slice(0, 10);
 }
 
 function extractSourceHeadings(text) {
@@ -660,7 +709,7 @@ function extractSourceHeadings(text) {
 
   return uniqueStrings(
     lines.filter(line => headingPatterns.some(pattern => pattern.test(line)))
-  ).slice(0, 40);
+  ).slice(0, 25);
 }
 
 function extractSourceBenefits(text) {
@@ -680,7 +729,7 @@ function extractSourceBenefits(text) {
     }
   });
 
-  return uniqueStrings(benefits).slice(0, 20);
+  return uniqueStrings(benefits).slice(0, 12);
 }
 
 function extractSourceSteps(text) {
@@ -697,12 +746,12 @@ function extractSourceSteps(text) {
     if (match) {
       steps.push({
         number: Number(match[1]),
-        text: limitText(match[2], 800)
+        text: limitText(match[2], 500)
       });
     }
   });
 
-  return steps.slice(0, 20);
+  return steps.slice(0, 12);
 }
 
 function extractSourceFaqs(text) {
@@ -733,7 +782,7 @@ function extractSourceFaqs(text) {
       if (currentQuestion || currentAnswer) {
         faqs.push({
           question: currentQuestion,
-          answer: limitText(currentAnswer, 900)
+          answer: limitText(currentAnswer, 500)
         });
       }
 
@@ -747,29 +796,29 @@ function extractSourceFaqs(text) {
   if (currentQuestion || currentAnswer) {
     faqs.push({
       question: currentQuestion,
-      answer: limitText(currentAnswer, 900)
+      answer: limitText(currentAnswer, 500)
     });
   }
 
-  return faqs.slice(0, 20);
+  return faqs.slice(0, 10);
 }
 
 function extractSourceReviews(text) {
   const normalized = cleanText(text);
   const reviews = [];
 
-  const quoteRegex = /[“"]([^”"]{30,2000})[”"]\s*[–-]\s*([A-Za-z][A-Za-z.\s]{1,60})/g;
+  const quoteRegex = /[“"]([^”"]{30,1600})[”"]\s*[–-]\s*([A-Za-z][A-Za-z.\s]{1,60})/g;
 
   let match;
 
   while ((match = quoteRegex.exec(normalized)) !== null) {
     reviews.push({
-      quote: limitText(match[1], 900),
+      quote: limitText(match[1], 500),
       author: cleanOneLine(match[2])
     });
   }
 
-  return reviews.slice(0, 20);
+  return reviews.slice(0, 10);
 }
 
 function extractSourceSections(text) {
@@ -800,11 +849,11 @@ function extractSourceSections(text) {
 
     sections.push({
       heading,
-      text: limitText(lines.slice(startIndex, endIndex).join(" "), 1200)
+      text: limitText(lines.slice(startIndex, endIndex).join(" "), 700)
     });
   });
 
-  return sections.slice(0, 25);
+  return sections.slice(0, 12);
 }
 
 function extractSourceStructuredContent(file) {
@@ -821,7 +870,7 @@ function extractSourceStructuredContent(file) {
     faqs: extractSourceFaqs(text),
     reviews: extractSourceReviews(text),
     sections: extractSourceSections(text),
-    fullText: limitText(text, 8000)
+    fullText: limitText(text, 3500)
   };
 }
 
@@ -946,7 +995,7 @@ function buildDeterministicHints(sourceStruct, livePageCompact) {
     }
   });
 
-  return hints.slice(0, 80);
+  return hints.slice(0, 35);
 }
 
 async function extractFileText(file) {
@@ -1037,7 +1086,7 @@ function scoreFileForUrl(url, fileName) {
   return score;
 }
 
-function getRelevantFilesForUrl(url, files, maxFiles = 2) {
+function getRelevantFilesForUrl(url, files, maxFiles = 1) {
   if (!files.length) return [];
 
   if (files.length === 1) return files;
@@ -1058,7 +1107,7 @@ function getRelevantFilesForUrl(url, files, maxFiles = 2) {
   return scored.slice(0, 1).map(item => item.file);
 }
 
-function compactFileText(file, maxChars = 7000) {
+function compactFileText(file, maxChars = 3500) {
   return {
     fileName: file.fileName,
     text: limitText(file.text, maxChars)
@@ -1074,7 +1123,7 @@ function compactLivePageForAi(page) {
     metaDescription: page.metaDescription,
     heroHeading: page.heroHeading,
     heroSubheading: page.heroSubheading,
-    headings: (page.headings || []).slice(0, 35),
+    headings: (page.headings || []).slice(0, 25),
 
     structuredContent: {
       meta: structured.meta || {},
@@ -1083,44 +1132,44 @@ function compactLivePageForAi(page) {
 
       headingHierarchy: {
         h1: structured.headingHierarchy?.h1 || [],
-        h2: (structured.headingHierarchy?.h2 || []).slice(0, 35),
-        h3: (structured.headingHierarchy?.h3 || []).slice(0, 35),
-        all: (structured.headingHierarchy?.all || []).slice(0, 45)
+        h2: (structured.headingHierarchy?.h2 || []).slice(0, 20),
+        h3: (structured.headingHierarchy?.h3 || []).slice(0, 20),
+        all: (structured.headingHierarchy?.all || []).slice(0, 28)
       },
 
-      sections: (structured.sections || []).slice(0, 14).map(section => ({
+      sections: (structured.sections || []).slice(0, 8).map(section => ({
         heading: section.heading,
         level: section.level,
-        text: limitText(section.text, 700)
+        text: limitText(section.text, 420)
       })),
 
-      ctas: (structured.ctas || []).slice(0, 20),
+      ctas: (structured.ctas || []).slice(0, 12),
 
-      benefits: (structured.benefits || []).slice(0, 14),
+      benefits: (structured.benefits || []).slice(0, 10),
 
-      processSteps: (structured.processSteps || []).slice(0, 12),
+      processSteps: (structured.processSteps || []).slice(0, 8),
 
-      faqs: (structured.faqs || []).slice(0, 12).map(faq => ({
-        question: limitText(faq.question, 200),
-        answer: limitText(faq.answer, 500),
+      faqs: (structured.faqs || []).slice(0, 8).map(faq => ({
+        question: limitText(faq.question, 160),
+        answer: limitText(faq.answer, 300),
         source: faq.source
       })),
 
-      reviews: (structured.reviews || []).slice(0, 8).map(review => ({
+      reviews: (structured.reviews || []).slice(0, 5).map(review => ({
         author: review.author,
-        text: limitText(review.text, 600)
+        text: limitText(review.text, 350)
       })),
 
       contactDetails: structured.contactDetails || {},
 
       globalComponents: {
-        headerText: limitText(structured.globalComponents?.headerText || "", 700),
-        navText: limitText(structured.globalComponents?.navText || "", 700),
-        footerText: limitText(structured.globalComponents?.footerText || "", 900)
+        headerText: limitText(structured.globalComponents?.headerText || "", 300),
+        navText: limitText(structured.globalComponents?.navText || "", 300),
+        footerText: limitText(structured.globalComponents?.footerText || "", 400)
       },
 
       pageBody: {
-        mainContent: limitText(structured.pageBody?.mainContent || "", 4500)
+        mainContent: limitText(structured.pageBody?.mainContent || "", 1800)
       }
     }
   };
@@ -1299,6 +1348,52 @@ function buildNoSourceReport(url, screenshotResult) {
   };
 }
 
+function buildDeterministicFallbackReport({
+  url,
+  sourceFile,
+  screenshotResult,
+  hints
+}) {
+  const highOrMedium = hints.filter(hint =>
+    ["HIGH", "MEDIUM"].includes(hint.severity)
+  );
+
+  return {
+    page: url,
+    sourceFile: sourceFile?.fileName || "Not provided",
+    jsonFile: "Optional / Not provided",
+    result: highOrMedium.length ? "FAIL" : "PASS",
+    mainIssue: highOrMedium.length
+      ? "Source and live page have content mismatches"
+      : "No high-priority deterministic mismatches found",
+    sections: hints.slice(0, 12).map(hint => ({
+      section: hint.type,
+      severity: hint.severity,
+      jsonStatus: "Optional / Not provided",
+      liveStatus: "Modified",
+      result: ["HIGH", "MEDIUM"].includes(hint.severity) ? "FAIL" : "PASS",
+      notes: `Source: '${hint.source}' | Live: '${hint.live}'`
+    })),
+    missingContent: hints
+      .filter(hint => hint.type.includes("MISSING"))
+      .map(hint => `Source: '${hint.source}' | Live: '${hint.live}'`),
+    duplicatedContent: [],
+    extraContent: [],
+    modifiedContent: hints
+      .filter(hint =>
+        hint.type.includes("MISMATCH") ||
+        hint.type.includes("MODIFIED") ||
+        hint.type.includes("CHANGED")
+      )
+      .map(hint => `Source: '${hint.source}' | Live: '${hint.live}' | Type: ${hint.type}`),
+    placementIssues: [],
+    whatToChange: highOrMedium.map(hint =>
+      `Fix ${hint.type}: source '${hint.source}' should match live content.`
+    ),
+    screenshotQA: screenshotResult
+  };
+}
+
 async function auditSinglePage({
   url,
   livePage,
@@ -1307,9 +1402,9 @@ async function auditSinglePage({
   jsonFiles,
   designFiles
 }) {
-  const relevantSourceFiles = getRelevantFilesForUrl(url, sourceFiles, 2);
-  const relevantJsonFiles = getRelevantFilesForUrl(url, jsonFiles, 2);
-  const relevantDesignFiles = getRelevantFilesForUrl(url, designFiles, 2);
+  const relevantSourceFiles = getRelevantFilesForUrl(url, sourceFiles, 1);
+  const relevantJsonFiles = getRelevantFilesForUrl(url, jsonFiles, 1);
+  const relevantDesignFiles = getRelevantFilesForUrl(url, designFiles, 1);
 
   if (!relevantSourceFiles.length && !relevantDesignFiles.length) {
     return buildNoSourceReport(url, screenshotResult);
@@ -1325,127 +1420,95 @@ async function auditSinglePage({
     buildDeterministicHints(source, liveCompact)
   );
 
+  const fallbackReport = buildDeterministicFallbackReport({
+    url,
+    sourceFile: relevantSourceFiles[0] || relevantDesignFiles[0],
+    screenshotResult,
+    hints: deterministicHints
+  });
+
   const prompt = `
-${MASTER_QA_PROMPT}
+${RUNTIME_QA_PROMPT}
 
-IMPORTANT STRUCTURED EXTRACTION NOTE:
-The LIVE PAGE data includes structuredContent with:
-- meta
-- hero
-- headingHierarchy
-- sections
-- ctas
-- benefits
-- processSteps
-- faqs
-- reviews
-- contactDetails
-- globalComponents
-- pageBody
+MANDATORY BACKEND MISMATCH HINTS:
+You MUST include valid hints in the final report.
+If you exclude a hint, only exclude it if clearly false.
 
-The SOURCE FILE data includes sourceStructuredContent with:
-- meta
-- headings
-- ctas
-- benefits
-- processSteps
-- faqs
-- reviews
-- sections
-- fullText
-
-MANDATORY DETERMINISTIC QA HINTS:
-The backend has already extracted likely mismatches.
-You MUST verify these hints and include valid ones in the final JSON report.
-Do not ignore CTA, FAQ, review, benefit, process, meta, city, or brand hints.
-
-${JSON.stringify(deterministicHints, null, 2)}
+${JSON.stringify(deterministicHints.slice(0, 30), null, 2)}
 
 AUDIT ONLY THIS ONE PAGE:
 ${url}
 
-LIVE PAGE:
+LIVE PAGE COMPACT STRUCTURED DATA:
 ${JSON.stringify(liveCompact, null, 2)}
 
-SCREENSHOT QA:
-${JSON.stringify(
-    {
-      url,
-      captured: screenshotResult.captured,
-      viewport: screenshotResult.viewport,
-      imageUrl: screenshotResult.imageUrl,
-      notes: screenshotResult.notes
-    },
-    null,
-    2
-  )}
+MATCHED SOURCE STRUCTURED CONTENT:
+${JSON.stringify(sourceStructured.map(source => ({
+    fileName: source.fileName,
+    meta: source.meta,
+    headings: source.headings.slice(0, 18),
+    ctas: source.ctas.slice(0, 8),
+    benefits: source.benefits.slice(0, 8),
+    processSteps: source.processSteps.slice(0, 7),
+    faqs: source.faqs.slice(0, 7),
+    reviews: source.reviews.slice(0, 5),
+    sections: source.sections.slice(0, 8),
+    fullText: limitText(source.fullText, 2000)
+  })), null, 2)}
 
-MATCHED SOURCE DOC/PDF STRUCTURED CONTENT:
-${JSON.stringify(sourceStructured, null, 2)}
+MATCHED JSON SUPPORT:
+${JSON.stringify(relevantJsonFiles.map(file => compactFileText(file, 1200)), null, 2)}
 
-MATCHED SOURCE DOC/PDF RAW TEXT EXCERPT:
-${JSON.stringify(relevantSourceFiles.map(file => compactFileText(file, 6000)), null, 2)}
-
-MATCHED ELEMENTOR JSON TEXT:
-${JSON.stringify(relevantJsonFiles.map(file => compactFileText(file, 4000)), null, 2)}
-
-MATCHED DESIGN FILE TEXT:
-${JSON.stringify(relevantDesignFiles.map(file => compactFileText(file, 5000)), null, 2)}
+MATCHED DESIGN SUPPORT:
+${JSON.stringify(relevantDesignFiles.map(file => compactFileText(file, 1500)), null, 2)}
 `;
 
-  const completion = await groq.chat.completions.create({
-    model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-    messages: [
-      {
-        role: "system",
-        content: "Return only valid JSON. No markdown. No headings. No explanation outside JSON."
-      },
-      {
-        role: "user",
-        content: prompt
-      }
-    ],
-    temperature: 0
-  });
+  try {
+    const completion = await groq.chat.completions.create({
+      model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
+      messages: [
+        {
+          role: "system",
+          content: "Return only valid compact JSON. No markdown. No explanation outside JSON."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      temperature: 0
+    });
 
-  const output = completion.choices[0].message.content;
-  const json = extractJsonFromAiOutput(output);
+    const output = completion.choices[0].message.content;
+    const json = extractJsonFromAiOutput(output);
 
-  let pageReport;
+    let pageReport;
 
-  if (Array.isArray(json.pages) && json.pages.length) {
-    pageReport = json.pages[0];
-  } else {
-    pageReport = {
-      page: url,
-      sourceFile: relevantSourceFiles[0]?.fileName || relevantDesignFiles[0]?.fileName || "Not provided",
-      jsonFile: relevantJsonFiles[0]?.fileName || "Optional / Not provided",
-      result: json.overallResult || "FAIL",
-      mainIssue: "AI returned incomplete page report",
-      sections: [],
-      missingContent: [],
-      duplicatedContent: [],
-      extraContent: [],
-      modifiedContent: [],
-      placementIssues: [],
-      whatToChange: []
+    if (Array.isArray(json.pages) && json.pages.length) {
+      pageReport = json.pages[0];
+    } else {
+      pageReport = fallbackReport;
+    }
+
+    return {
+      ...pageReport,
+      page: pageReport.page || url,
+      sourceFile:
+        pageReport.sourceFile ||
+        relevantSourceFiles[0]?.fileName ||
+        relevantDesignFiles[0]?.fileName ||
+        "Not provided",
+      jsonFile:
+        pageReport.jsonFile ||
+        relevantJsonFiles[0]?.fileName ||
+        "Optional / Not provided",
+      screenshotQA: screenshotResult
     };
-  }
+  } catch (error) {
+    console.error("AI page audit failed, using deterministic fallback:", error.message);
 
-  return {
-    ...pageReport,
-    page: pageReport.page || url,
-    sourceFile:
-      pageReport.sourceFile ||
-      relevantSourceFiles[0]?.fileName ||
-      relevantDesignFiles[0]?.fileName ||
-      "Not provided",
-    jsonFile:
-      pageReport.jsonFile ||
-      relevantJsonFiles[0]?.fileName ||
-      "Optional / Not provided",
-    screenshotQA: screenshotResult
-  };
+    return fallbackReport;
+  }
 }
 
 app.post(
