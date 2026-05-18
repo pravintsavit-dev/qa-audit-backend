@@ -114,6 +114,80 @@ FINDINGS REQUIREMENT:
 If a page fails, you must list specific issues in the correct arrays.
 Do not give only generic fixes.
 
+SEVERITY AND DECISION RULES:
+
+Classify findings intelligently.
+
+HIGH severity issues:
+- Wrong city/location
+- Wrong brand/practice name
+- Wrong phone number
+- Wrong CTA intent
+- Wrong treatment/service name
+- Wrong FAQ meaning
+- Missing major source section
+- Incorrect medical/service wording
+- Wrong pricing or offer text
+- Wrong review attribution
+- Wrong appointment flow wording
+
+MEDIUM severity issues:
+- Modified wording that changes meaning slightly
+- Rewritten paragraphs
+- Partially incomplete sections
+- Section order problems
+- Missing secondary content blocks
+
+LOW severity issues:
+- Helpful extra sections
+- Additional testimonials
+- Additional educational content
+- Additional supporting CTA blocks
+- Additional non-conflicting reviews
+- Minor wording changes that preserve meaning
+
+IMPORTANT EXTRA CONTENT RULE:
+Do NOT automatically fail pages because extra content exists.
+
+If extra content:
+- does NOT conflict with source truth
+- does NOT replace source content
+- does NOT introduce wrong treatment/city/brand/service information
+
+then classify it as:
+"additional supporting content"
+
+NOT as a major FAIL reason.
+
+Examples of acceptable extra content:
+- reviews
+- educational sections
+- extra testimonials
+- additional CTA
+- additional FAQ
+- supporting informational blocks
+
+ONLY mark extra content as FAIL-level issue if:
+- it conflicts with source
+- changes intent
+- introduces wrong information
+- replaces expected content
+- introduces wrong service/city/brand wording
+
+DECISION LOGIC:
+If page has only LOW severity issues and source meaning is preserved:
+- PASS with notes
+
+If page has HIGH severity issues:
+- FAIL
+
+If page has MEDIUM issues affecting important source meaning:
+- FAIL
+
+If additional helpful content exists without conflict:
+- mention it as informational only
+- do NOT fail page solely for that reason
+
 Examples:
 Wrong:
 "Update FAQs to match source file"
@@ -173,13 +247,16 @@ Return EXACTLY this JSON structure:
       "mainIssue": "short manager-ready summary of the biggest issue",
       "sections": [
         {
-          "section": "section name",
-          "jsonStatus": "Found / Missing / Optional / Not provided",
-          "liveStatus": "Matched / Missing / Modified / Extra / Could not access",
-          "result": "PASS or FAIL",
-          "notes": "specific evidence, including source vs live wording where useful"
-        }
-      ],
+          "sections": [
+  {
+    "section": "section name",
+    "severity": "HIGH / MEDIUM / LOW / INFO",
+    "jsonStatus": "Found / Missing / Optional / Not provided",
+    "liveStatus": "Matched / Missing / Modified / Extra / Could not access",
+    "result": "PASS or FAIL",
+    "notes": "specific evidence, including source vs live wording where useful"
+  }
+],
       "missingContent": [],
       "duplicatedContent": [],
       "extraContent": [],
