@@ -60,6 +60,7 @@ function cleanText(value) {
     .replace(/[ \t]+/g, " ")
     .replace(/\n\s+/g, "\n")
     .replace(/\s+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
 
@@ -113,6 +114,274 @@ function extractTextList($, selector, maxItems = 40, maxLength = 260) {
 }
 
 async function extractLivePageText(url) {
+  if (!process.env.BROWSERLESS_TOKEN) {
+    return extractLivePageTextFallback(url);
+  }
+
+  try {
+    const functionUrl =
+      `https://production-sfo.browserless.io/function?token=${process.env.BROWSERLESS_TOKEN}`;
+
+    const browserlessCode = `
+export default async ({ page, context }) => {
+  const targetUrl = context.url;
+
+  function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  async function autoScroll() {
+    await page.evaluate(async () => {
+      await new Promise(resolve => {
+        let totalHeight = 0;
+        const distance = 700;
+
+        const timer = setInterval(() => {
+          const scrollHeight = Math.max(
+            document.body.scrollHeight,
+            document.documentElement.scrollHeight
+          );
+
+          window.scrollBy(0, distance);
+          totalHeight += distance;
+
+          if (totalHeight >= scrollHeight) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 250);
+      });
+    });
+
+    await sleep(1000);
+
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+
+    await sleep(800);
+  }
+
+  async function expandSafeContent() {
+    await page.evaluate(() => {
+      const selectors = [
+        'details:not([open]) summary',
+        '.elementor-tab-title',
+        '.elementor-toggle-title',
+        '.accordion-title',
+        '.accordion-header',
+        '.faq-question',
+        '[aria-expanded="false"]'
+      ];
+
+      const clicked = new Set();
+
+      selectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(el => {
+          const text = (el.innerText || el.textContent || '').trim();
+          const key = selector + '|' + text;
+
+          if (clicked.has(key)) return;
+
+          const lower = text.toLowerCase();
+
+          const looksUseful =
+            text.endsWith('?') ||
+            lower.includes('faq') ||
+            lower.includes('what') ||
+            lower.includes('how') ||
+            lower.includes('why') ||
+            lower.includes('can') ||
+            lower.includes('do') ||
+            lower.includes('treatment') ||
+            lower.includes('service') ||
+            selector.includes('elementor') ||
+            selector.includes('accordion');
+
+          if (!looksUseful) return;
+
+          try {
+            el.click();
+            clicked.add(key);
+          } catch (e) {}
+        });
+      });
+    });
+
+    await sleep(1200);
+  }
+
+  await page.setViewport({
+    width: 1920,
+    height: 1080,
+    deviceScaleFactor: 1,
+    isMobile: false,
+    hasTouch: false
+  });
+
+  await page.goto(targetUrl, {
+    waitUntil: 'networkidle2',
+    timeout: 60000
+  });
+
+  await sleep(3000);
+
+  await expandSafeContent();
+
+  await autoScroll();
+
+  await expandSafeContent();
+
+  await page.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) {
+      try {
+        await document.fonts.ready;
+      } catch (e) {}
+    }
+  });
+
+  await sleep(1500);
+
+  const data = await page.evaluate(() => {
+    function cleanText(value) {
+      return String(value || '')
+        .replace(/\\u00a0/g, ' ')
+        .replace(/[ \\t]+/g, ' ')
+        .replace(/\\n\\s+/g, '\\n')
+        .replace(/\\s+\\n/g, '\\n')
+        .replace(/\\n{3,}/g, '\\n\\n')
+        .trim();
+    }
+
+    function cleanOneLine(value) {
+      return String(value || '')
+        .replace(/\\u00a0/g, ' ')
+        .replace(/\\s+/g, ' ')
+        .trim();
+    }
+
+    function getText(selector) {
+      return cleanText(
+        Array.from(document.querySelectorAll(selector))
+          .map(el => el.innerText || '')
+          .filter(Boolean)
+          .join('\\n')
+      );
+    }
+
+    function getHeadings() {
+      return Array.from(document.querySelectorAll('h1,h2,h3,h4,h5,h6'))
+        .map(el => cleanOneLine(el.innerText || el.textContent || ''))
+        .filter(Boolean)
+        .slice(0, 80);
+    }
+
+    function getButtonsAndLinks() {
+      return Array.from(document.querySelectorAll('a,button,input[type="button"],input[type="submit"]'))
+        .map(el => ({
+          text: cleanOneLine(el.innerText || el.value || el.getAttribute('aria-label') || ''),
+          href: el.href || el.getAttribute('href') || '',
+          tag: el.tagName
+        }))
+        .filter(item => item.text)
+        .slice(0, 120);
+    }
+
+    function getMetaDescription() {
+      const meta =
+        document.querySelector('meta[name="description"]') ||
+        document.querySelector('meta[property="og:description"]');
+
+      return meta ? meta.getAttribute('content') || '' : '';
+    }
+
+    const clone = document.body.cloneNode(true);
+
+    clone.querySelectorAll('script,style,noscript,svg,iframe').forEach(el => el.remove());
+
+    const headerText = getText('header');
+    const navText = getText('nav');
+    const footerText = getText('footer');
+
+    clone.querySelectorAll('header,nav,footer,script,style,noscript,svg,iframe').forEach(el => el.remove());
+
+    const mainEl = document.querySelector('main');
+
+    const mainVisibleText = mainEl
+      ? cleanText(mainEl.innerText || '')
+      : cleanText(clone.innerText || '');
+
+    const fullVisibleText = cleanText(document.body.innerText || '');
+
+    return {
+      url: location.href,
+      meta: {
+        title: cleanOneLine(document.title || ''),
+        metaTitle: cleanOneLine(document.title || ''),
+        metaDescription: cleanOneLine(getMetaDescription())
+      },
+      hero: {
+        heading: cleanOneLine((document.querySelector('h1') || {}).innerText || ''),
+        subheading: ''
+      },
+      headings: getHeadings(),
+      mainButtons: getButtonsAndLinks(),
+      mainVisibleText,
+      fullVisibleText,
+      globalComponents: {
+        headerText,
+        navText,
+        footerText
+      }
+    };
+  });
+
+  return {
+    data,
+    type: 'application/json'
+  };
+};
+`;
+
+    const response = await axios.post(
+      functionUrl,
+      browserlessCode,
+      {
+        headers: {
+          "Content-Type": "application/javascript"
+        },
+        params: {
+          context: JSON.stringify({ url })
+        },
+        timeout: 90000
+      }
+    );
+
+    const data = response.data || {};
+
+    return {
+      url,
+      meta: data.meta || {},
+      hero: data.hero || {},
+      headings: Array.isArray(data.headings) ? data.headings : [],
+      mainButtons: Array.isArray(data.mainButtons) ? data.mainButtons : [],
+      mainVisibleText: limitText(data.mainVisibleText || "", 12000),
+      fullVisibleText: limitText(data.fullVisibleText || "", 14000),
+      globalComponents: {
+        headerText: limitText(data.globalComponents?.headerText || "", 2000),
+        navText: limitText(data.globalComponents?.navText || "", 2000),
+        footerText: limitText(data.globalComponents?.footerText || "", 2500)
+      },
+      scrapeMethod: "browserless-rendered"
+    };
+  } catch (error) {
+    console.error("Browserless rendered scrape failed, using fallback:", error.message);
+
+    return extractLivePageTextFallback(url);
+  }
+}
+
+async function extractLivePageTextFallback(url) {
   try {
     const response = await axios.get(url, {
       timeout: 30000,
@@ -152,13 +421,6 @@ async function extractLivePageText(url) {
     });
 
     const heroHeading = cleanOneLine($("h1").first().text());
-
-    let heroSubheading = "";
-    const heroSection = $("h1").first().closest("section, div");
-
-    if (heroSection.length) {
-      heroSubheading = cleanOneLine(heroSection.find("p").first().text());
-    }
 
     const h1 = extractTextList($, "h1", 10, 260);
     const h2 = extractTextList($, "h2", 40, 260);
@@ -203,7 +465,7 @@ async function extractLivePageText(url) {
       },
       hero: {
         heading: heroHeading,
-        subheading: heroSubheading
+        subheading: ""
       },
       headings: headings.slice(0, 50),
       mainButtons: mainButtons.slice(0, 30),
@@ -213,7 +475,8 @@ async function extractLivePageText(url) {
         headerText: limitText(headerText, 1500),
         navText: limitText(navText, 1500),
         footerText: limitText(footerText, 2000)
-      }
+      },
+      scrapeMethod: "axios-fallback"
     };
   } catch (error) {
     return {
@@ -225,7 +488,8 @@ async function extractLivePageText(url) {
       mainButtons: [],
       mainVisibleText: "",
       fullVisibleText: "",
-      globalComponents: {}
+      globalComponents: {},
+      scrapeMethod: "failed"
     };
   }
 }
@@ -350,14 +614,15 @@ function compactLivePageForAi(page) {
     url: page.url,
     meta: page.meta || {},
     hero: page.hero || {},
-    headings: (page.headings || []).slice(0, 50),
-    mainButtons: (page.mainButtons || []).slice(0, 30),
-    mainVisibleText: limitText(page.mainVisibleText || "", 9000),
+    headings: (page.headings || []).slice(0, 60),
+    mainButtons: (page.mainButtons || []).slice(0, 50),
+    mainVisibleText: limitText(page.mainVisibleText || "", 12000),
     globalComponents: {
-      headerText: limitText(page.globalComponents?.headerText || "", 1200),
-      navText: limitText(page.globalComponents?.navText || "", 1200),
-      footerText: limitText(page.globalComponents?.footerText || "", 1600)
-    }
+      headerText: limitText(page.globalComponents?.headerText || "", 1500),
+      navText: limitText(page.globalComponents?.navText || "", 1500),
+      footerText: limitText(page.globalComponents?.footerText || "", 2000)
+    },
+    scrapeMethod: page.scrapeMethod || "unknown"
   };
 }
 
